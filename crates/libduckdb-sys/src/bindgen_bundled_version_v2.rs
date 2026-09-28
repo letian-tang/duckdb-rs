@@ -133,7 +133,7 @@ pub type duckdb_v2_blob_t = duckdb_v2_bytes;
 pub type duckdb_v2_bit_t = duckdb_v2_bytes;
 #[doc = "! BIGNUM storage. Decode via `duckdb_v2_bignum_decode()`."]
 pub type duckdb_v2_bignum_t = duckdb_v2_bytes;
-#[doc = " A borrowed name view with the same layout as str, marking a string DuckDB treats as a SQL identifier: one matched\n case-insensitively. Compare two identifiers case-insensitively rather than byte for byte, and render one into SQL\n through the identifier-quoting entry point rather than embedding it raw. The catalog preserves casing; some\n registries (config settings) canonicalize to lowercase."]
+#[doc = " A borrowed name view with the same layout as str, marking a string DuckDB treats as a SQL identifier: one matched\n case-insensitively. Compare two identifiers case-insensitively rather than byte for byte, and render one into SQL\n through the identifier-quoting entry point rather than embedding it raw. The catalog preserves casing; some\n registries (config settings) canonicalize to lowercase.\n\n An identifier passed into the API must be valid UTF-8; otherwise the call fails with `ERROR_INPUT_INVALID`."]
 pub type duckdb_v2_identifier_t = duckdb_v2_str;
 #[doc = " Receives text produced by DuckDB\n\n Invoked exactly once per producing call, with the complete text in a single view.\n\n The view is borrowed for the duration of the call only. Copy what you need before returning, and do not retain\n `text.ptr`. The bytes are NOT guaranteed to be null-terminated.\n\n `err` is a live error slot, never NULL. Populate it with `duckdb_v2_error_info_set_code()` /\n `duckdb_v2_error_info_set_text()` to signal failure to DuckDB. Do not destroy it yourself.\n\n The sink runs inside DuckDB's call frame: it must not throw or unwind across the boundary, and it must not re-enter\n the API on the handle being operated on."]
 pub type duckdb_v2_text_sink_fn = ::std::option::Option<
@@ -1250,7 +1250,7 @@ unsafe extern "C" {
     ) -> DUCKDB_V2_ERROR;
 }
 unsafe extern "C" {
-    #[doc = " Sets one attach option, like a `(KEY value)` entry of SQL `ATTACH`.\n\n The key is matched case-insensitively, as an unquoted SQL identifier is. The setting is passed on as the text a\n quoted SQL literal would produce: the engine casts the options it knows (READ_ONLY, RECOVERY_MODE, TYPE,\n DEFAULT_TABLE, VACUUM_REBUILD_INDEXES, BLOCK_SIZE, ENCRYPTION_KEY, ...) and hands the rest to the storage extension\n that ends up owning the database, which decides what they mean. Nothing is validated here; an unknown or ill-typed\n option fails the attach. Both views are borrowed and copied. Setting the same key again replaces it.\n\n history:\n - stable: v2.0.0\n\n @param options The attach options.\n @param key The option name, e.g. READ_ONLY.\n @param setting The option value, in the textual form a quoted SQL literal would carry.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
+    #[doc = " Sets one attach option, like a `(KEY value)` entry of SQL `ATTACH`.\n\n The key is matched case-insensitively, as an unquoted SQL identifier is. The setting is passed on as the text a\n quoted SQL literal would produce: the engine casts the options it knows (READ_ONLY, RECOVERY_MODE, TYPE,\n DEFAULT_TABLE, VACUUM_REBUILD_INDEXES, BLOCK_SIZE, ENCRYPTION_KEY, ...) and hands the rest to the storage extension\n that ends up owning the database, which decides what they mean. Keys must be valid UTF-8; an unknown or ill-typed\n option fails the attach. Both views are borrowed and copied. Setting the same key again replaces it.\n\n history:\n - stable: v2.0.0\n\n @param options The attach options.\n @param key The option name, e.g. READ_ONLY.\n @param setting The option value, in the textual form a quoted SQL literal would carry.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_attach_options_set(
         options: duckdb_v2_attach_options_handle,
         key: duckdb_v2_identifier_t,
@@ -1343,7 +1343,7 @@ pub struct _duckdb_v2_qname {
 #[doc = " An owned qualified name: an ordered path of one to three non-empty identifier parts whose last element is the object\n name. Construct with `duckdb_v2_qname_parse()` or `duckdb_v2_qname_create()`, read with\n `duckdb_v2_qname_get_part_count()` and `duckdb_v2_qname_get_part()`, render back to SQL with\n `duckdb_v2_qname_render()`, compare with `duckdb_v2_qname_equals()`, and destroy with `duckdb_v2_qname_destroy()`.\n Two handles are compared with `duckdb_v2_qname_equals()`, never by pointer."]
 pub type duckdb_v2_qname_handle = *mut _duckdb_v2_qname;
 unsafe extern "C" {
-    #[doc = " Parses SQL text into a qualified name.\n\n Applies the engine's qualified-name rules: dots separate parts, and a double-quoted part may contain dots and doubled\n interior quotes. More than three parts and an unterminated quote are rejected with the parser's own error; text\n without at least one non-empty part is rejected with `ERROR_INPUT_INVALID`. When the parts are already separate,\n build the name with `duckdb_v2_qname_create()` rather than joining them and parsing the result.\n\n history:\n - stable: v2.0.0\n\n @param text The name text to parse. Borrowed for the call only.\n @param name On success, receives the qualified name. Owned by the caller; destroy via `duckdb_v2_qname_destroy()`.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
+    #[doc = " Parses SQL text into a qualified name.\n\n Applies the engine's qualified-name rules: dots separate parts, and a double-quoted part may contain dots and doubled\n interior quotes. More than three parts and an unterminated quote are rejected with the parser's own error. Invalid\n UTF-8 and text without at least one non-empty part are rejected with `ERROR_INPUT_INVALID`. When the parts are\n already separate, build the name with `duckdb_v2_qname_create()` rather than joining them and parsing the result.\n\n history:\n - stable: v2.0.0\n\n @param text The name text to parse. Borrowed for the call only.\n @param name On success, receives the qualified name. Owned by the caller; destroy via `duckdb_v2_qname_destroy()`.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_qname_parse(
         text: duckdb_v2_str,
         name: *mut duckdb_v2_qname_handle,
@@ -1840,7 +1840,7 @@ unsafe extern "C" {
     #[doc = " Sets the name of the aggregate function.\n\n The name is borrowed and copied. Calling this again replaces the previous name. A name must be set before\n registration.\n\n history:\n - stable: v2.0.0\n\n @param function The function to set the name of.\n @param name The name to set. Borrowed and copied.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_aggregate_function_set_name(
         function: duckdb_v2_aggregate_function_handle,
-        name: *mut duckdb_v2_str,
+        name: *mut duckdb_v2_identifier_t,
         err: *mut duckdb_v2_error_info_handle,
     ) -> DUCKDB_V2_ERROR;
 }
@@ -2277,7 +2277,7 @@ unsafe extern "C" {
     pub fn duckdb_v2_arrow_importer_destroy(importer: *mut duckdb_v2_arrow_importer_handle) -> DUCKDB_V2_ERROR;
 }
 unsafe extern "C" {
-    #[doc = " Creates an exporter for one fixed list of columns.\n\n Resolves the extension types and captures the session's Arrow settings, so every array this exporter produces matches\n the schema `duckdb_v2_arrow_exporter_get_schema()` reports, even if a setting changes afterwards.\n\n `batch_size` caps the rows per produced array. A long chunk is split across several arrays. Rows left over that do\n not fill a batch are held back and joined with the next chunk, unless the append asked to flush. Pass 0 for no\n maximum: each chunk becomes one array, however long it is.\n\n `types` and `names` are parallel arrays of `count` entries, borrowed and copied; they may be NULL only when `count`\n is 0. Resolving reads the catalog, so `context` must have an active transaction. `*out_exporter` is set to NULL on\n failure.\n\n history:\n - stable: v2.0.0\n\n @param context The context whose Arrow settings are captured and whose transaction resolves the types.\n @param types An array of `count` column types. May be NULL only when `count` is 0.\n @param names An array of `count` column names, parallel to `types`. May be NULL only when `count` is 0.\n @param count The number of columns, being the length of both `types` and `names`.\n @param batch_size Maximum rows per produced array, or 0 for no maximum.\n @param out_exporter On success, receives the new exporter. Owned by the caller; destroy via\n `duckdb_v2_arrow_exporter_destroy()`.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
+    #[doc = " Creates an exporter for one fixed list of columns.\n\n Resolves the extension types and captures the session's Arrow settings, so every array this exporter produces matches\n the schema `duckdb_v2_arrow_exporter_get_schema()` reports, even if a setting changes afterwards.\n\n `batch_size` caps the rows per produced array. A long chunk is split across several arrays. Rows left over that do\n not fill a batch are held back and joined with the next chunk, unless the append asked to flush. Pass 0 for no\n maximum: each chunk becomes one array, however long it is.\n\n `types` and `names` are parallel arrays of `count` entries, borrowed and copied; they may be NULL only when `count`\n is 0. Resolving reads the catalog, so `context` must have an active transaction. `*out_exporter` is set to NULL on\n failure.\n\n history:\n - stable: v2.0.0\n\n @param context The context whose Arrow settings are captured and whose transaction resolves the types.\n @param types An array of `count` column types. May be NULL only when `count` is 0.\n @param names An array of `count` column names, parallel to `types`. Each name must be valid UTF-8. May be NULL only\n when `count` is 0.\n @param count The number of columns, being the length of both `types` and `names`.\n @param batch_size Maximum rows per produced array, or 0 for no maximum.\n @param out_exporter On success, receives the new exporter. Owned by the caller; destroy via\n `duckdb_v2_arrow_exporter_destroy()`.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_arrow_exporter_create(
         context: duckdb_v2_context_handle,
         types: *const duckdb_v2_logical_type_handle,
@@ -2674,7 +2674,7 @@ unsafe extern "C" {
     #[doc = " Sets the name of the copy function.\n\n The name is the format SQL selects the function with: `COPY ... TO 'path' (FORMAT name)` or `COPY table FROM 'path'\n (FORMAT name)`. It is borrowed and copied. Calling this again replaces the previous name. A name must be set before\n registration.\n\n history:\n - stable: v2.0.0\n\n @param function The function to set the name of.\n @param name The name to set. Borrowed and copied.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_copy_function_set_name(
         function: duckdb_v2_copy_function_handle,
-        name: *mut duckdb_v2_str,
+        name: *mut duckdb_v2_identifier_t,
         err: *mut duckdb_v2_error_info_handle,
     ) -> DUCKDB_V2_ERROR;
 }
@@ -2695,7 +2695,7 @@ unsafe extern "C" {
     ) -> DUCKDB_V2_ERROR;
 }
 unsafe extern "C" {
-    #[doc = " Sets the optional batch size callback of the `COPY ... TO` side.\n\n The batch size callback is invoked during query planning, after the bind callback, for each `COPY ... TO` statement\n that does not set `BATCH_SIZE` itself. It must report how many rows a batch should carry via\n `duckdb_v2_copy_to_batch_size_set_target()`; the engine then cuts the rows being written into batches of that size\n and hands each to the batch callback. Without a batch size from either the statement or the callback, a batch is cut\n for every chunk of rows sunk, i.e. a vector at a time. A batch may still be smaller than the reported size (the last\n one of a file, or when `BATCH_SIZE_BYTES` cuts it first).\n\n history:\n - stable: v2.0.0\n\n @param function The function to set the callback of.\n @param callback The callback to set.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
+    #[doc = " Sets the optional batch size callback of the `COPY ... TO` side.\n\n The batch size callback is invoked during query planning, after the bind callback, for each `COPY ... TO` statement\n that does not set `BATCH_SIZE` itself. It should report how many rows a batch should carry via\n `duckdb_v2_copy_to_batch_size_set_target()`; the engine then cuts the rows being written into batches of that size\n and hands each to the batch callback. Without a batch size from either the statement or the callback, a batch is cut\n for every chunk of rows sunk, i.e. a vector at a time. A batch may still be smaller than the reported size (the last\n one of a file, or when `BATCH_SIZE_BYTES` cuts it first).\n\n history:\n - stable: v2.0.0\n\n @param function The function to set the callback of.\n @param callback The callback to set.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_copy_to_set_batch_size_callback(
         function: duckdb_v2_copy_function_handle,
         callback: duckdb_v2_copy_to_batch_size_callback_fn,
@@ -2827,7 +2827,7 @@ unsafe extern "C" {
     ) -> DUCKDB_V2_ERROR;
 }
 unsafe extern "C" {
-    #[doc = " Sets the number of rows a batch should carry, as the target the engine cuts batches at. The batch size callback must\n set this to a value greater than 0; the statement fails otherwise.\n\n history:\n - stable: v2.0.0\n\n @param info The batch size info handle.\n @param rows The number of rows a batch should carry. Must be greater than 0.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
+    #[doc = " Sets the number of rows a batch should carry, as the target the engine cuts batches at. The batch size callback must\n set this to a value greater than 0; the statement fails otherwise. DuckDB defines the `BATCH_SIZE` on omission of\n calling the function.\n\n history:\n - stable: v2.0.0\n\n @param info The batch size info handle.\n @param rows The number of rows a batch should carry. Must be greater than 0.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_copy_to_batch_size_set_target(
         info: duckdb_v2_copy_to_batch_size_info_handle,
         rows: idx_t,
@@ -3832,7 +3832,7 @@ unsafe extern "C" {
     #[doc = " Sets the name of the scalar function.\n\n The name is borrowed and copied. Calling this again replaces the previous name. A name must be set before\n registration.\n\n history:\n - stable: v2.0.0\n\n @param function The function to set the name of.\n @param name The name to set. Borrowed and copied.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_scalar_function_set_name(
         function: duckdb_v2_scalar_function_handle,
-        name: *mut duckdb_v2_str,
+        name: *mut duckdb_v2_identifier_t,
         err: *mut duckdb_v2_error_info_handle,
     ) -> DUCKDB_V2_ERROR;
 }
@@ -5471,7 +5471,7 @@ unsafe extern "C" {
     #[doc = " Sets the name of the table function.\n\n The name is borrowed and copied. Calling this again replaces the previous name. A name must be set before\n registration.\n\n history:\n - stable: v2.0.0\n\n @param function The function to set the name of.\n @param name The name to set. Borrowed and copied.\n @param err Optional. On failure, receives an opaque info handle the caller must destroy via\n `duckdb_v2_error_info_destroy()`.\n @return DUCKDB_V2_ERROR"]
     pub fn duckdb_v2_table_function_set_name(
         function: duckdb_v2_table_function_handle,
-        name: *mut duckdb_v2_str,
+        name: *mut duckdb_v2_identifier_t,
         err: *mut duckdb_v2_error_info_handle,
     ) -> DUCKDB_V2_ERROR;
 }
