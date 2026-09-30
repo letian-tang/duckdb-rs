@@ -80,6 +80,7 @@ pub use crate::{
     error::Error,
     ffi::ErrorCode,
     inner_connection::InterruptHandle,
+    owned_rows::{OwnedRow, OwnedRows},
     params::{Params, ParamsFromIter, params_from_iter},
     row::{AndThenRows, Map, MappedRows, Row, RowIndex, Rows},
     statement::Statement,
@@ -113,6 +114,7 @@ mod column;
 mod config;
 mod executed_result;
 mod inner_connection;
+mod owned_rows;
 mod params;
 
 #[cfg(feature = "polars")]
