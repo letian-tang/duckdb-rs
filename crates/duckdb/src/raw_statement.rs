@@ -144,6 +144,11 @@ impl RawStatement {
         self.result.as_ref().expect("The statement was not executed yet")
     }
 
+    /// Transfer the executed result without tying its lifetime to this statement.
+    pub(crate) fn take_result(&mut self) -> Option<ExecutedResult> {
+        self.result.take()
+    }
+
     #[inline]
     pub fn column_name(&self, idx: usize) -> Option<&String> {
         self.executed().column_name(idx)

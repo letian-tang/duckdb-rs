@@ -369,12 +369,20 @@ impl<'stmt> Row<'stmt> {
 
     fn value_ref(&self, row: usize, col: usize) -> ValueRef<'_> {
         let column = self.arr.as_ref().as_ref().unwrap().column(col);
+        Self::value_ref_with_type(row, column, self.stmt.result_column_logical_id(col))
+    }
+
+    pub(crate) fn value_ref_with_type(
+        row: usize,
+        column: &ArrayRef,
+        logical_type: Option<LogicalTypeId>,
+    ) -> ValueRef<'_> {
         let value = Self::value_ref_internal(row, column);
 
         // Some DuckDB logical types share Arrow physical carriers. Executed
         // result metadata recovers those DuckDB type tags.
         match value {
-            ValueRef::Blob(bytes) => match self.stmt.result_column_logical_id(col) {
+            ValueRef::Blob(bytes) => match logical_type {
                 Some(LogicalTypeId::Geometry) => ValueRef::Geometry(bytes),
                 _ => ValueRef::Blob(bytes),
             },
@@ -384,7 +392,7 @@ impl<'stmt> Row<'stmt> {
             // metadata recovers UHUGEINT and DECIMAL; otherwise preserve the
             // existing HugeInt fallback for parameter-derived or metadata-less
             // results.
-            ValueRef::HugeInt(value) => match self.stmt.result_column_logical_id(col) {
+            ValueRef::HugeInt(value) => match logical_type {
                 Some(LogicalTypeId::UHugeint) => ValueRef::UHugeInt(value as u128),
                 Some(LogicalTypeId::Decimal) => {
                     if let DataType::Decimal128(width, 0) = column.data_type() {
