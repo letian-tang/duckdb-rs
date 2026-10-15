@@ -312,6 +312,29 @@ mod tests {
         assert!(owned.next()?.is_none());
         Ok(())
     }
+
+    #[test]
+    fn untyped_nulls_decode_in_owned_and_borrowed_rows_across_chunks() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        let sql = "SELECT NULL AS nil, NULL::INTEGER AS typed_nil, [NULL, NULL] AS nils FROM range(4097)";
+        let mut owned = conn.try_clone()?.query_owned(sql, [])?;
+        let mut stmt = conn.prepare(sql)?;
+        let mut borrowed = stmt.query([])?;
+        for _ in 0..4097 {
+            let a = owned.next()?.unwrap();
+            let b = borrowed.next()?.unwrap();
+            for index in 0..2 {
+                assert_eq!(a.get_ref(index)?, ValueRef::Null);
+                assert_eq!(b.get_ref(index)?, ValueRef::Null);
+            }
+            let expected = crate::types::Value::List(vec![crate::types::Value::Null; 2]);
+            assert_eq!(a.get_ref(2)?.to_owned(), expected);
+            assert_eq!(b.get_ref(2)?.to_owned(), expected);
+        }
+        assert!(owned.next()?.is_none());
+        assert!(borrowed.next()?.is_none());
+        Ok(())
+    }
     #[test]
     fn independent_results_move_between_threads() -> Result<()> {
         let connection = Connection::open_in_memory()?;

@@ -73,10 +73,11 @@ InterruptHandle 的 Weak 检查不代替原生内存泄漏检测。
 ### 2026-10-15 main 移植验证
 
 - macOS aarch64，Rust 1.98.1，linked 模式使用 pin 指定的 `2.0.0-alpha43678` 官方预编译库。
-- OwnedRows 专项 10/10；启用 `chrono,rust_decimal,uuid,r2d2` 的库测试 352/352，集成测试 3 通过、2 忽略。
+- OwnedRows 专项 11 项；启用 `chrono,rust_decimal,uuid,r2d2` 的库测试 353/353，集成测试 3 通过、2 忽略。
 - 文档测试 55 通过、7 忽略，包括非 Sync 与借用期间不能推进结果的编译失败示例。
 - 整个 workspace 构建通过，包括 duckdb-neo。crate 版本、Cargo.lock、绑定和原生引擎 pin 未改动。
 - all-targets 严格 Clippy（`-D warnings`）、fmt 与 diff 检查通过。
+- NimbusDB 联调发现无类型 NULL 导出为 Arrow NullArray，其物理 null bitmap 为空；公共 Row 解码器补齐 DataType::Null，避免 panic。普通 Rows 与 OwnedRows 均覆盖无类型/有类型 NULL、嵌套 NULL 列表及跨 chunk 读取。
 - NimbusDB 的 bundled-cmake / MySQL wire 验证单独记录在其 `docs/DUCKDB_2_0_UPGRADE.md`，不与本项 linked 验证混用。
 
 ## 跟随官方版本的移植流程

@@ -414,6 +414,9 @@ impl<'stmt> Row<'stmt> {
         // duckdb.cpp SetArrowFormat
         // https://github.com/duckdb/duckdb/blob/71f1c7a7e4b8737cff5e78d1f090c54f5e78e17b/src/main/query_result.cpp#L148
         match column.data_type() {
+            // NullArray has no physical validity bitmap, so is_null above
+            // does not identify its logically null values.
+            DataType::Null => ValueRef::Null,
             DataType::Utf8 => {
                 let array = column.as_any().downcast_ref::<array::StringArray>().unwrap();
                 ValueRef::from(array.value(row))
