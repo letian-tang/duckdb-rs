@@ -700,6 +700,21 @@ impl Connection {
         self.db.borrow().get_interrupt_handle()
     }
 
+    /// Borrow the underlying v1 C API connection handle.
+    ///
+    /// This does not transfer ownership or create another connection.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not disconnect the handle, retain it beyond this
+    /// connection's lifetime, use it concurrently with any operation on this
+    /// connection, or invalidate resources owned by Rust statements, appenders,
+    /// or query results. Native code must use headers and an ABI matching the
+    /// linked DuckDB library. Exceptions must not unwind across the C ABI.
+    pub unsafe fn handle(&self) -> ffi::duckdb_connection {
+        self.db.borrow().con
+    }
+
     /// Close the DuckDB connection.
     ///
     /// This is functionally equivalent to the `Drop` implementation for
@@ -747,6 +762,34 @@ impl fmt::Debug for Connection {
 
 #[cfg(doctest)]
 doc_comment::doctest!("../../../README.md");
+
+#[cfg(test)]
+mod native_handle_tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_handle_preserves_connection_ownership() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        // Create a session-private object through the borrowed C handle. The
+        // Rust connection must see it, and must still own a usable connection.
+        let mut result = unsafe { std::mem::zeroed() };
+        let status = unsafe {
+            ffi::duckdb_query(
+                conn.handle(),
+                c"CREATE TEMP TABLE native_handle_probe AS SELECT 42 AS value".as_ptr(),
+                &mut result,
+            )
+        };
+        unsafe { ffi::duckdb_destroy_result(&mut result) };
+        assert_eq!(status, ffi::DuckDBSuccess);
+        assert_eq!(
+            conn.query_row("SELECT value FROM native_handle_probe", [], |row| row.get::<_, i64>(0))?,
+            42
+        );
+        assert!(conn.try_clone()?.prepare("SELECT * FROM native_handle_probe").is_err());
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod test {
