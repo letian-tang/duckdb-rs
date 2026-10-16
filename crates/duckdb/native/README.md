@@ -44,3 +44,5 @@ internal fault. The existing six scalar error/panic recovery tests run when
 this bridge is enabled rather than remaining ignored. No kernel patch is needed.
 
 `Connection::transaction_state()` reads actual engine autocommit/active/aborted flags without executing SQL. With this feature, `is_autocommit()` also reads the engine instead of the legacy placeholder. `OwnedRows::query_shared(Arc<Mutex<Connection>>, ...)` executes a single statement on the existing session, retains its owner, and permits later commands while reading the materialized result. It never creates a separate transaction or connection.
+
+Shared results also pin the original database handle independently of the mutex contents. Replacing/closing the shared connection cannot invalidate a retained result's allocator. The synchronous prepared C API forces materialization (`ClientContext::RunInternalStatement`); the shared API is not a streaming query interface.

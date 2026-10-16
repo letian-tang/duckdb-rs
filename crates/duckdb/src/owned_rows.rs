@@ -33,6 +33,8 @@ pub struct OwnedRows {
     result: ExecutedResult,
     _connection: Option<Connection>,
     _shared_connection: Option<Arc<Mutex<Connection>>>,
+    // Pin the original database even if a caller replaces the mutex contents.
+    _database: Option<Arc<Mutex<crate::inner_connection::DatabaseHandle>>>,
     position: usize,
     exhausted: bool,
 }
@@ -75,6 +77,7 @@ impl Connection {
             result,
             _connection: Some(self),
             _shared_connection: None,
+            _database: None,
             position: 0,
             exhausted: false,
         })
@@ -88,17 +91,19 @@ impl OwnedRows {
     /// result retains the connection owner, while the session can execute later
     /// statements or finish its transaction. No new connection is created.
     pub fn query_shared<P: Params>(connection: Arc<Mutex<Connection>>, sql: &str, params: P) -> Result<Self> {
-        let result = {
+        let (result, database) = {
             let guard = connection.lock().map_err(|_| Error::InvalidQuery)?;
+            let database = guard.db.borrow().database_owner();
             let mut statement = guard.prepare_single(sql)?;
             statement.execute(params)?;
-            statement.stmt.take_result().ok_or(Error::InvalidQuery)?
+            (statement.stmt.take_result().ok_or(Error::InvalidQuery)?, database)
         };
         Ok(Self {
             chunk: None,
             result,
             _connection: None,
             _shared_connection: Some(connection),
+            _database: Some(database),
             position: 0,
             exhausted: false,
         })
@@ -182,6 +187,45 @@ impl OwnedRow<'_> {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn shared_result_pins_original_database_when_connection_is_replaced() -> Result<()> {
+        let owner = Arc::new(Mutex::new(Connection::open_in_memory()?));
+        let mut rows = OwnedRows::query_shared(
+            Arc::clone(&owner),
+            "SELECT i::BIGINT, repeat('x', 4096) FROM range(4097) t(i)",
+            [],
+        )?;
+        let original = std::mem::replace(&mut *owner.lock().unwrap(), Connection::open_in_memory()?);
+        original.close().map_err(|(_, error)| error)?;
+        drop(owner);
+        for index in 0..4097 {
+            let row = rows.next()?.unwrap();
+            assert_eq!(row.get_ref(0)?, ValueRef::BigInt(index));
+            assert_eq!(row.get_ref(1)?.as_str()?.len(), 4096);
+        }
+        assert!(rows.next()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn changed_rows_are_distinct_from_select_and_returning() -> Result<()> {
+        let connection = Connection::open_in_memory()?;
+        connection.execute_batch("CREATE TABLE changed_result(v INTEGER)")?;
+        let mut statement = connection.prepare_single("INSERT INTO changed_result VALUES (1), (2)")?;
+        assert_eq!(statement.execute([])?, 2);
+        assert!(statement.is_changed_rows());
+        for sql in [
+            "SELECT v FROM changed_result ORDER BY v",
+            "INSERT INTO changed_result VALUES (3) RETURNING v",
+        ] {
+            let mut statement = connection.prepare_single(sql)?;
+            statement.execute([])?;
+            assert!(!statement.is_changed_rows());
+            assert!(statement.raw_query().next()?.is_some());
+        }
+        Ok(())
+    }
 
     #[test]
     #[cfg(feature = "native-frontend")]

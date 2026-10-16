@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct DatabaseHandle {
+pub(crate) struct DatabaseHandle {
     db: ffi::duckdb_database,
     close_on_drop: bool,
 }
@@ -124,6 +124,10 @@ impl InnerConnection {
     }
 
     /// Creates a new connection to the already-opened database.
+    pub(crate) fn database_owner(&self) -> Arc<Mutex<DatabaseHandle>> {
+        Arc::clone(&self.database)
+    }
+
     pub fn try_clone(&self) -> Result<Self> {
         unsafe { Self::new(self.database.clone()) }
     }
