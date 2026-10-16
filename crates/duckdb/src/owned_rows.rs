@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use arrow::array::{Array, StructArray};
 
 use crate::{
@@ -6,7 +8,7 @@ use crate::{
 
 /// A materialized result with no borrow of a statement or connection.
 ///
-/// Owns a dedicated connection and is Send, not Sync. Moving it between worker
+/// Retains a dedicated or shared connection owner and is Send, not Sync. Moving it between worker
 /// threads does not keep a worker alive between reads. This does not bound the
 /// memory used by DuckDB to materialize the query.
 ///
@@ -29,7 +31,8 @@ pub struct OwnedRows {
     // Declaration order is intentional: Arrow chunk, result, then connection.
     chunk: Option<StructArray>,
     result: ExecutedResult,
-    _connection: Connection,
+    _connection: Option<Connection>,
+    _shared_connection: Option<Arc<Mutex<Connection>>>,
     position: usize,
     exhausted: bool,
 }
@@ -70,7 +73,8 @@ impl Connection {
         Ok(OwnedRows {
             chunk: None,
             result,
-            _connection: self,
+            _connection: Some(self),
+            _shared_connection: None,
             position: 0,
             exhausted: false,
         })
@@ -78,6 +82,27 @@ impl Connection {
 }
 
 impl OwnedRows {
+    /// Materialize a single statement on an existing shared session connection.
+    ///
+    /// Execution holds the mutex; fetching the completed result does not. The
+    /// result retains the connection owner, while the session can execute later
+    /// statements or finish its transaction. No new connection is created.
+    pub fn query_shared<P: Params>(connection: Arc<Mutex<Connection>>, sql: &str, params: P) -> Result<Self> {
+        let result = {
+            let guard = connection.lock().map_err(|_| Error::InvalidQuery)?;
+            let mut statement = guard.prepare_single(sql)?;
+            statement.execute(params)?;
+            statement.stmt.take_result().ok_or(Error::InvalidQuery)?
+        };
+        Ok(Self {
+            chunk: None,
+            result,
+            _connection: None,
+            _shared_connection: Some(connection),
+            position: 0,
+            exhausted: false,
+        })
+    }
     /// Number of result columns.
     pub fn column_count(&self) -> usize {
         self.result.schema_ref().fields().len()
@@ -157,6 +182,51 @@ impl OwnedRow<'_> {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    #[cfg(feature = "native-frontend")]
+    fn shared_result_uses_original_transaction_and_survives_later_queries() -> Result<()> {
+        let owner = Arc::new(Mutex::new(Connection::open_in_memory()?));
+        let observer = owner.lock().unwrap().try_clone()?;
+        owner
+            .lock()
+            .unwrap()
+            .execute_batch("CREATE TABLE shared_tx(v INTEGER); BEGIN; INSERT INTO shared_tx VALUES (42)")?;
+        assert!(!owner.lock().unwrap().is_autocommit());
+        assert!(owner.lock().unwrap().transaction_state().active);
+        let mut rows = OwnedRows::query_shared(Arc::clone(&owner), "SELECT v FROM shared_tx", [])?;
+        assert_eq!(
+            observer.query_row("SELECT count(*) FROM shared_tx", [], |r| r.get::<_, i64>(0))?,
+            0
+        );
+        owner.lock().unwrap().execute_batch("ROLLBACK; SELECT 99")?;
+        assert!(owner.lock().unwrap().is_autocommit());
+        let weak = Arc::downgrade(&owner);
+        drop(owner);
+        assert!(weak.upgrade().is_some());
+        assert_eq!(rows.next()?.unwrap().get_ref(0)?, ValueRef::Int(42));
+        assert!(rows.next()?.is_none());
+        drop(rows);
+        assert!(weak.upgrade().is_none());
+        assert_eq!(
+            observer.query_row("SELECT count(*) FROM shared_tx", [], |r| r.get::<_, i64>(0))?,
+            0
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "native-frontend")]
+    fn real_transaction_state_reports_abort_and_rollback() -> Result<()> {
+        let connection = Connection::open_in_memory()?;
+        assert!(!connection.transaction_state().active);
+        connection.execute_batch("BEGIN")?;
+        assert!(connection.execute_batch("SELECT CAST('invalid' AS INTEGER)").is_err());
+        assert!(connection.transaction_state().aborted);
+        connection.execute_batch("ROLLBACK")?;
+        assert!(!connection.transaction_state().active);
+        Ok(())
+    }
 
     #[test]
     fn executes_once_and_preserves_materialized_snapshot() -> Result<()> {

@@ -1,6 +1,9 @@
 #include "duckdb.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb_rs/native_frontend.hpp"
+#include "duckdb/transaction/transaction_context.hpp"
+#include "duckdb/transaction/meta_transaction.hpp"
+#include "duckdb/main/valid_checker.hpp"
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
@@ -86,4 +89,17 @@ extern "C" char *duckdb_rs_scalar_set_fallible(duckdb_scalar_function function) 
         reinterpret_cast<duckdb::ScalarFunction *>(function)->SetFallible();
         return "OK";
     });
+}
+
+// Called only with the Rust connection exclusively borrowed. Reading these
+// connection-local flags neither executes SQL nor starts a transaction.
+extern "C" unsigned char duckdb_rs_transaction_state(duckdb_connection handle) noexcept {
+    auto &connection = *reinterpret_cast<duckdb::Connection *>(handle);
+    auto &transaction = connection.context->transaction;
+    unsigned char state = transaction.IsAutoCommit() ? 1 : 0;
+    if (transaction.HasActiveTransaction()) {
+        state |= 2;
+        if (duckdb::ValidChecker::IsInvalidated(transaction.ActiveTransaction())) state |= 4;
+    }
+    return state;
 }

@@ -273,7 +273,14 @@ impl InnerConnection {
 
     #[inline]
     pub fn is_autocommit(&self) -> bool {
-        true
+        #[cfg(feature = "native-frontend")]
+        {
+            unsafe { crate::native_frontend::duckdb_rs_transaction_state(self.con) & 1 != 0 }
+        }
+        #[cfg(not(feature = "native-frontend"))]
+        {
+            true
+        }
     }
 }
 

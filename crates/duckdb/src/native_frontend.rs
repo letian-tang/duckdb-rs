@@ -16,6 +16,7 @@ struct RewriteReply {
 }
 
 unsafe extern "C" {
+    pub(crate) fn duckdb_rs_transaction_state(connection: ffi::duckdb_connection) -> u8;
     fn duckdb_rs_frontend_initialize(name: *const c_char, connection: ffi::duckdb_connection) -> *mut c_char;
     fn duckdb_rs_frontend_parse(
         name: *const c_char,
@@ -206,5 +207,26 @@ mod tests {
         }
         assert!(call(|_| panic!("policy panic")).contains("panicked"));
         assert!(call(|_| Ok(Some("invalid\0SQL".into()))).contains("NUL"));
+    }
+}
+
+/// Actual engine transaction flags, independent of an application's autocommit setting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TransactionState {
+    pub autocommit: bool,
+    pub active: bool,
+    pub aborted: bool,
+}
+
+impl Connection {
+    /// Read transaction state without executing a statement or changing its snapshot.
+    pub fn transaction_state(&self) -> TransactionState {
+        let connection = self.db.borrow();
+        let flags = unsafe { duckdb_rs_transaction_state(connection.con) };
+        TransactionState {
+            autocommit: flags & 1 != 0,
+            active: flags & 2 != 0,
+            aborted: flags & 4 != 0,
+        }
     }
 }
