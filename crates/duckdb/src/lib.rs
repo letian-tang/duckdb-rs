@@ -101,6 +101,10 @@ pub use polars;
 /// The core module contains the main functionality of the DuckDB crate.
 pub mod core;
 
+/// Safe host for statically linked C++ SQL frontend extensions.
+#[cfg(feature = "native-frontend")]
+pub mod native_frontend;
+
 #[macro_use]
 mod error;
 mod appender;
@@ -562,6 +566,12 @@ impl Connection {
     #[inline]
     pub fn prepare(&self, sql: &str) -> Result<Statement<'_>> {
         self.db.borrow_mut().prepare(self, sql)
+    }
+
+    /// Prepare exactly one statement without executing any statement. Unlike
+    /// [`Self::prepare`], multi-statement input is rejected before execution.
+    pub fn prepare_single(&self, sql: &str) -> Result<Statement<'_>> {
+        self.db.borrow_mut().prepare_single(self, sql)
     }
 
     /// Create an Appender for fast import data

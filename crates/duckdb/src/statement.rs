@@ -464,6 +464,13 @@ impl Statement<'_> {
         self.stmt.bind_parameter_count()
     }
 
+    /// Return the logical type inferred for a one-based parameter index without
+    /// executing the statement. `None` means its type is not yet determined.
+    /// The returned type is owned and remains valid after the statement is dropped.
+    pub fn parameter_logical_type(&self, index: usize) -> Result<Option<crate::core::LogicalTypeHandle>> {
+        self.stmt.parameter_logical_type(index)
+    }
+
     /// Returns the name of the parameter at the given index.
     ///
     /// This can be used to query the names of named parameters (e.g., `$param_name`)
@@ -2496,6 +2503,49 @@ mod test {
             Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?))
         })?;
         assert_eq!(row, (7, "ok".to_string()));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod native_metadata_tests {
+    use crate::{Connection, Error, Result, core::LogicalTypeId};
+    #[test]
+    fn prepared_parameter_types_are_owned_and_do_not_execute() -> Result<()> {
+        let connection = Connection::open_in_memory()?;
+        connection.execute_batch("CREATE SEQUENCE metadata_counter START 1")?;
+        let decimal = {
+            let statement = connection
+                .prepare_single("SELECT nextval('metadata_counter'), CAST(? AS BIGINT), CAST(? AS DECIMAL(18,4))")?;
+            assert_eq!(statement.parameter_count(), 2);
+            assert_eq!(
+                statement.parameter_logical_type(1)?.unwrap().id(),
+                LogicalTypeId::Bigint
+            );
+            assert!(matches!(
+                statement.parameter_logical_type(0),
+                Err(Error::InvalidParameterIndex(0))
+            ));
+            assert!(statement.parameter_logical_type(3).is_err());
+            assert!(statement.try_column_logical_type(3).is_err());
+            statement.parameter_logical_type(2)?.unwrap()
+        };
+        assert_eq!(decimal.id(), LogicalTypeId::Decimal);
+        assert_eq!((decimal.decimal_width(), decimal.decimal_scale()), (18, 4));
+        assert!(
+            connection
+                .prepare_single("SELECT ?")?
+                .parameter_logical_type(1)?
+                .is_none()
+        );
+        assert!(matches!(
+            connection.prepare_single("SELECT nextval('metadata_counter'); SELECT 1"),
+            Err(Error::MultipleStatement)
+        ));
+        assert_eq!(
+            connection.query_row("SELECT nextval('metadata_counter')", [], |row| row.get::<_, i64>(0))?,
+            1
+        );
         Ok(())
     }
 }

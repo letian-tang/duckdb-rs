@@ -140,6 +140,14 @@ impl InnerConnection {
     }
 
     pub fn prepare<'a>(&mut self, conn: &'a Connection, sql: &str) -> Result<Statement<'a>> {
+        self.prepare_internal(conn, sql, false)
+    }
+
+    pub fn prepare_single<'a>(&mut self, conn: &'a Connection, sql: &str) -> Result<Statement<'a>> {
+        self.prepare_internal(conn, sql, true)
+    }
+
+    fn prepare_internal<'a>(&mut self, conn: &'a Connection, sql: &str, single: bool) -> Result<Statement<'a>> {
         let c_str = CString::new(sql)?;
 
         // Extract statements (handles both single and multi-statement queries)
@@ -150,6 +158,9 @@ impl InnerConnection {
 
         // Auto-cleanup on drop
         let _guard = ExtractedStatementsGuard(extracted);
+        if single && num_stmts != 1 {
+            return Err(Error::MultipleStatement);
+        }
 
         // Execute all intermediate statements
         for i in 0..num_stmts - 1 {
