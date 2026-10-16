@@ -83,6 +83,10 @@ impl RawStatement {
     }
 
     #[inline]
+    pub(crate) fn is_changed_rows(&self) -> bool {
+        self.result.as_ref().is_some_and(ExecutedResult::is_changed_rows)
+    }
+
     pub fn row_count(&self) -> usize {
         self.executed().row_count()
     }

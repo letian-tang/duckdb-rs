@@ -32,6 +32,12 @@ pub struct Statement<'conn> {
 }
 
 impl Statement<'_> {
+    /// Whether the executed result reports affected rows instead of a resultset.
+    /// INSERT/UPDATE/DELETE with RETURNING remain ordinary resultsets.
+    pub fn is_changed_rows(&self) -> bool {
+        self.stmt.is_changed_rows()
+    }
+
     /// Execute the prepared statement.
     ///
     /// On success, returns the number of rows that were changed or inserted or

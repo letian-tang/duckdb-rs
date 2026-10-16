@@ -76,6 +76,13 @@ impl ExecutedResult {
         })
     }
 
+    pub(crate) fn is_changed_rows(&self) -> bool {
+        unsafe {
+            ffi::duckdb_result_return_type(*self.result.as_mut_ptr())
+                == ffi::duckdb_result_type_DUCKDB_RESULT_TYPE_CHANGED_ROWS
+        }
+    }
+
     pub(crate) fn row_count(&self) -> usize {
         unsafe { ffi::duckdb_row_count(self.result.as_mut_ptr()) as usize }
     }

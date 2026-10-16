@@ -213,8 +213,11 @@ mod tests {
 /// Actual engine transaction flags, independent of an application's autocommit setting.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TransactionState {
+    /// Whether the engine automatically commits each statement.
     pub autocommit: bool,
+    /// Whether this connection currently owns a transaction.
     pub active: bool,
+    /// Whether an error invalidated the active transaction.
     pub aborted: bool,
 }
 
