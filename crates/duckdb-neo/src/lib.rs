@@ -50,7 +50,6 @@ pub mod error;
 pub(crate) mod ffi_str;
 pub mod log_sink;
 pub mod logical_type;
-pub mod materialized_result;
 #[cfg(feature = "native-frontend")]
 pub mod native_frontend;
 pub(crate) mod parameter;
@@ -330,8 +329,3 @@ mod tests {
         Ok(())
     }
 }
-
-#[cfg(feature = "arrow-scalar")]
-pub use arrow_rs;
-#[cfg(feature = "arrow-scalar")]
-pub mod arrow_scalar;

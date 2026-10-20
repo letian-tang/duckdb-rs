@@ -89,39 +89,40 @@ fn main() -> Result<()> {
 
 Execute the program with `cargo run` and watch DuckDB in action!
 
-## Detached results and sessions (fork extension)
+## Minimal fork extensions
 
-`Connection::new_session()` opens an independent session on the same database.
-Transactions, temporary tables and session settings belong to each session;
-commands in one client transaction must keep using the original connection.
+Use the upstream `Instance::connect()`, `QueryResult`, `ColumnDataCollection`,
+`ScalarFunctionBuilder` and `ScalarCallbacks` for sessions, execution, storage,
+and batched functions. This fork does not provide `new_session`,
+`MaterializedResult`, `query_materialized`, or an Arrow scalar framework.
 
-V2 query results are lazy and occupy their connection until execution finishes.
-For a protocol cursor retained between commands, use
-`Connection::query_materialized(statement, parameters)`. It executes once to
-completion and stores chunks in a DuckDB buffer-managed column collection.
-`MaterializedResult` owns the database lifetime, can move between workers, and
-does not reserve or borrow the original session. Its `next_chunk()` returns a
-borrowed chunk that cannot survive the next scan call. `next_row()` provides
-a borrowed row without copying chunks; choose one iteration mode per result. Its schema preserves
-logical types, including DECIMAL width/scale. This API does not enforce any
-particular wire protocol's cursor-close or transaction policy.
+The remaining additions fill safe interface gaps:
 
-The optional `native-frontend` feature exposes the generic C++ SQL frontend
-host and `Connection::transaction_state()`. Extensions implement
-`duckdb_neo_rs::SqlFrontendExtension` in the exported
-`DEP_DUCKDB_NEO_FRONTEND_INCLUDE` headers, using the matching engine headers at
-`DEP_DUCKDB_NEO_FRONTEND_DUCKDB_INCLUDE`. Connection-bound frontend operations
-use the same non-Sync session; execution and preparation respect DuckDB's active-query guards. Strings, callback panic containment and
-exception containment belong to the driver. This is a narrow bridge for
-capabilities not exposed by V2, rather than a general C++ AST binding.
-V1 and V2 hosts use separate symbols and share their containment implementation
-from `libduckdb-sys/native/frontend_host.cpp`.
+- `ColumnDataCollection::new_owned()` pins an instance factory and its database.
+  An owned scan (`to_scan()?.into_owned()?`) can move between workers without a
+  borrowed connection or live query. Borrowed factories are rejected.
+- `current_chunk()` borrows the scan's current chunk, allowing consumers to
+  retain a row position without copying the chunk or invoking a raw API.
+- `DataChunkRef::get_untyped_vector_at()` exposes a read-only dynamic vector.
+- `native-frontend` exports a generic C++ PEG/AST extension host and actual
+  transaction state. The C API does not expose these operations. Exceptions,
+  callback panics, handle conversion and memory release stay in the driver.
+  Extensions use `duckdb_neo_rs::SqlFrontendExtension`, exported through
+  `DEP_DUCKDB_NEO_FRONTEND_INCLUDE` and matching
+  `DEP_DUCKDB_NEO_FRONTEND_DUCKDB_INCLUDE` headers.
+- 128-bit integer, decimal and UUID vector access handles native 8-byte alignment
+  without constructing misaligned Rust references.
+- `bundled-cmake-json` forwards the existing sys JSON feature, which upstream Neo
+  does not currently expose. It adds no JSON implementation.
+
+Query-to-collection orchestration and MySQL cursor policy belong to consumers.
+The traditional `duckdb` crate and `libduckdb-sys` match the upstream baseline;
+old V1 fork APIs remain available only in their prior commits/tags.
 
 ## Feature flags
 
 ### Integrations
 
-- `arrow-scalar` - Batched Arrow Rust callbacks through V2, with checked return types, special NULL handling and fallible errors.
 - `bundled-cmake-json` - Statically link the JSON extension through the CMake backend.
 
 - `chrono` - Convert DuckDB `DATE`, `TIME`, and `TIMESTAMP` values to [`chrono`](https://docs.rs/chrono) types.

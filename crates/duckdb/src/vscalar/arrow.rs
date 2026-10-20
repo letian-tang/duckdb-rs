@@ -74,7 +74,7 @@ impl ArrowFunctionSignature {
 /// A trait for scalar functions that accept and return arrow types that can be registered with DuckDB
 pub trait VArrowScalar: Sized {
     /// State set at registration time. Persists for the lifetime of the catalog entry.
-    /// Shared across worker threads and invocations; any interior mutation must be synchronized.
+    /// Shared across worker threads and invocations — must not be modified during execution.
     /// Must be `'static` as it is stored in DuckDB and may outlive the current stack frame.
     type State: Default + Sized + Send + Sync + 'static;
 
@@ -124,48 +124,6 @@ where
                 return_type: to_duckdb_logical_type(&sig.return_type).expect("type should be converted"),
             })
             .collect()
-    }
-
-    fn volatile() -> bool {
-        <T as VArrowScalar>::volatile()
-    }
-}
-
-#[cfg(test)]
-mod volatility_tests {
-    use super::*;
-    use arrow::array::Int64Array;
-    use std::sync::atomic::{AtomicI64, Ordering};
-
-    struct Counter;
-    impl VArrowScalar for Counter {
-        type State = Arc<AtomicI64>;
-        fn invoke(counter: &Self::State, input: RecordBatch) -> Result<Arc<dyn Array>, Box<dyn std::error::Error>> {
-            Ok(Arc::new(Int64Array::from_iter_values(
-                (0..input.num_rows()).map(|_| counter.fetch_add(1, Ordering::SeqCst) + 1),
-            )))
-        }
-        fn signatures() -> Vec<ArrowFunctionSignature> {
-            vec![ArrowFunctionSignature::exact(vec![DataType::Int64], DataType::Int64)]
-        }
-        fn volatile() -> bool {
-            true
-        }
-    }
-
-    #[test]
-    fn arrow_volatility_prevents_constant_folding_and_evaluates_each_row() -> crate::Result<()> {
-        let connection = crate::Connection::open_in_memory()?;
-        let counter = Arc::new(AtomicI64::new(0));
-        connection.register_scalar_function_with_state::<Counter>("arrow_counted", &counter)?;
-        let mut statement = connection.prepare_single("SELECT arrow_counted(1) FROM range(4)")?;
-        assert_eq!(counter.load(Ordering::SeqCst), 0);
-        let values = statement
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<crate::Result<Vec<_>>>()?;
-        assert_eq!(values, [1, 2, 3, 4]);
-        assert_eq!(counter.load(Ordering::SeqCst), 4);
-        Ok(())
     }
 }
 

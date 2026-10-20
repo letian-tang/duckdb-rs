@@ -8,14 +8,6 @@
 
 duckdb-rs is an ergonomic Rust wrapper for [DuckDB](https://github.com/duckdb/duckdb).
 
-### Fork extension: owned query results
-
-This branch adds `Connection::query_owned`, `OwnedRows`, and `OwnedRow` on top of
-upstream `main` (`4014db7`, DuckDB `2.0.0-alpha43678`). These are fork APIs,
-not upstream APIs. They retain a materialized native result and a dedicated connection
-without borrowing a statement, for consumers that fetch across separate tasks.
-See [OwnedRows design, validation, and version-porting checklist](docs/OWNED_ROWS.md).
-
 You can use it to:
 
 - Query DuckDB with type-safe bindings and an API inspired by [rusqlite](https://github.com/rusqlite/rusqlite).

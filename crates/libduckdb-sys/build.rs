@@ -26,10 +26,6 @@ fn is_compiler(compiler_name: &str) -> bool {
 }
 
 fn main() {
-    println!(
-        "cargo:native_frontend={}/native",
-        env::var("CARGO_MANIFEST_DIR").unwrap()
-    );
     let out_dir = env::var("OUT_DIR").unwrap();
     #[cfg(feature = "bundled")]
     build_bundled_backend::main(&out_dir);

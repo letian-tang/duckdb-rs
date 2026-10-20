@@ -73,10 +73,7 @@ impl ScalarFunction {
         let c_name = CString::new(name).expect("scalar function name must not contain NUL bytes");
         unsafe { duckdb_scalar_function_set_name(f_ptr, c_name.as_ptr()) };
 
-        let function = Self { ptr: f_ptr };
-        #[cfg(feature = "native-frontend")]
-        crate::native_frontend::mark_scalar_fallible(function.ptr)?;
-        Ok(function)
+        Ok(Self { ptr: f_ptr })
     }
 
     /// Adds a parameter to the scalar function.

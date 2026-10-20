@@ -185,22 +185,6 @@ impl Connection {
         })
     }
 
-    /// Open an independent session on this session's database.
-    ///
-    /// The database is shared; temporary tables, transaction state, and
-    /// session settings are not copied. This does not create a connection pool.
-    /// Keep using the original session for commands in one client transaction.
-    pub fn new_session(&self) -> Result<Self> {
-        let database = Arc::clone(&self._db);
-        let handle = check_api_call!(ffi::duckdb_v2_connection_create, database.lock().unwrap().handle, RET)?;
-        Ok(Self {
-            _db: database,
-            inner: Arc::new(InnerConnection { handle }),
-            _not_sync: PhantomData,
-            factory: OnceCell::new(),
-        })
-    }
-
     /// Parse SQL into an iterator over its statements.
     pub fn parse(&self, query: impl AsRef<str>) -> Result<Statements> {
         Statements::parse(self, query)
@@ -394,30 +378,6 @@ mod tests {
         Parameters,
         environment::{Environment, StorageLocation},
     };
-
-    #[test]
-    fn new_session_shares_storage_and_keeps_transactions_separate() -> crate::Result<()> {
-        let conn = Environment::new()?.open(StorageLocation::InMemory)?.connect()?;
-        conn.execute("CREATE TABLE shared(i INTEGER)", Parameters::None)?;
-        conn.execute("CREATE TEMP TABLE private_session(i INTEGER)", Parameters::None)?;
-        conn.execute("BEGIN", Parameters::None)?;
-        conn.execute("INSERT INTO shared VALUES (1)", Parameters::None)?;
-        let other = conn.new_session()?;
-        assert!(other.query("FROM private_session", Parameters::None).is_err());
-        let count = other
-            .query("SELECT count(*) FROM shared", Parameters::None)?
-            .next_chunk()?
-            .unwrap();
-        assert_eq!(count.get_vector_at::<i64>(0)?.get(0)?, Some(&0));
-        conn.execute("COMMIT", Parameters::None)?;
-        drop(conn);
-        let count = other
-            .query("SELECT count(*) FROM shared", Parameters::None)?
-            .next_chunk()?
-            .unwrap();
-        assert_eq!(count.get_vector_at::<i64>(0)?.get(0)?, Some(&1));
-        Ok(())
-    }
 
     #[test]
     fn test_connection_execute() -> crate::Result<()> {
