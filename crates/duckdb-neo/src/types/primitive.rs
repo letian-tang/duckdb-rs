@@ -12,7 +12,7 @@ use crate::{
     logical_type::{LogicalType, LogicalTypeID},
     raw::RawExt,
     value::{Value, ValueInput},
-    vector::{Vector, WritableVectorElement},
+    vector::{Vector, VectorElement, WritableVectorElement},
 };
 
 /// The bind-time `ANY` logical type used in function signatures.
@@ -131,8 +131,34 @@ DeclareVectorElement!(u32, DUCKDB_V2_LOGICAL_TYPE_ID_UINTEGER);
 DeclareVectorElement!(u64, DUCKDB_V2_LOGICAL_TYPE_ID_UBIGINT);
 DeclareVectorElement!(f32, DUCKDB_V2_LOGICAL_TYPE_ID_FLOAT);
 DeclareVectorElement!(f64, DUCKDB_V2_LOGICAL_TYPE_ID_DOUBLE);
-DeclareVectorElement!(i128, DUCKDB_V2_LOGICAL_TYPE_ID_HUGEINT);
-DeclareVectorElement!(u128, DUCKDB_V2_LOGICAL_TYPE_ID_UHUGEINT);
+// DuckDB hugeint storage is only 8-byte aligned; Rust i128/u128 require 16.
+// Return values, never references into possibly unaligned native storage.
+macro_rules! huge_element {
+    ($ty:ty,$raw:ty,$id:ident) => {
+        impl VectorElement for $ty {
+            const TYPE_ID: LogicalTypeID = LogicalTypeID::$id;
+            type Internal = $raw;
+            type Ref<'a> = $ty;
+            unsafe fn get<'a, U: VectorElement>(
+                vector: &'a Vector<'_, U>,
+                physical: usize,
+                _logical: usize,
+            ) -> Self::Ref<'a>
+            where
+                Self: Sized + 'a,
+            {
+                let raw = unsafe {
+                    (vector.view.as_ref().unwrap().as_ptr() as *const $raw)
+                        .add(physical)
+                        .read_unaligned()
+                };
+                ((raw.upper as $ty) << 64) | raw.lower as $ty
+            }
+        }
+    };
+}
+huge_element!(i128, ffi::duckdb_v2_hugeint_t, DUCKDB_V2_LOGICAL_TYPE_ID_HUGEINT);
+huge_element!(u128, ffi::duckdb_v2_uhugeint_t, DUCKDB_V2_LOGICAL_TYPE_ID_UHUGEINT);
 
 macro_rules! DeclareWritableVectorElement {
     ($type:ty) => {

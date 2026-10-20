@@ -125,20 +125,8 @@ impl SqlFrontend {
         })
     }
 
-    /// Initialize extension grammar/functions using this exclusively borrowed connection.
-    /// A live V2 query prevents frontend operations on the same session:
-    ///
-    /// ```compile_fail,E0502
-    /// # use duckdb_neo::{Parameters, environment::{Environment, StorageLocation}, native_frontend::SqlFrontend};
-    /// # fn main() -> duckdb_neo::Result<()> {
-    /// let mut conn = Environment::new()?.open(StorageLocation::InMemory)?.connect()?;
-    /// let mut result = conn.query("SELECT 1", Parameters::None)?;
-    /// SqlFrontend::new("example")?.initialize(&mut conn)?;
-    /// result.next_chunk()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn initialize(&self, connection: &mut Connection) -> Result<()> {
+    /// Initialize extension grammar/functions on the owning session thread.
+    pub fn initialize(&self, connection: &Connection) -> Result<()> {
         take_result(unsafe { duckdb_neo_rs_frontend_initialize(self.name.as_ptr(), connection.raw()) })?;
         Ok(())
     }
@@ -172,7 +160,7 @@ impl SqlFrontend {
 
     /// Classify SQL through the extension, including binding when needed. Never
     /// executes the original statement or transfers ownership of the connection.
-    pub fn is_read_only(&self, connection: &mut Connection, sql: &str) -> Result<bool> {
+    pub fn is_read_only(&self, connection: &Connection, sql: &str) -> Result<bool> {
         let sql = CString::new(sql).map_err(|e| error(e.to_string()))?;
         Ok(take_result(unsafe {
             duckdb_neo_rs_frontend_read_only(self.name.as_ptr(), connection.raw(), sql.as_ptr())

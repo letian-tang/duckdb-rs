@@ -1,9 +1,8 @@
 //! The `UUID` logical type.
 //!
 //! [`UuidValueRaw`] mirrors DuckDB's internal signed 128-bit UUID representation
-//! exactly, so it is read and written through a direct pointer cast (see
-//! [`super::primitive::DeclareVectorElement`]), the same pattern used by the
-//! calendar/clock types in [`super::temporal`].
+//! exactly. Reads return an owned value because native storage can be only
+//! 8-byte aligned while Rust 128-bit integers require 16-byte alignment.
 //!
 //! With the `uuid` feature, `uuid::Uuid` can be used anywhere [`UuidValueRaw`]
 //! can, converting to and from the internal representation on the fly.
@@ -52,7 +51,7 @@ impl VectorElement for UuidValueRaw {
     type Internal = ffi::duckdb_v2_hugeint_t;
 
     type Ref<'a>
-        = &'a UuidValueRaw
+        = UuidValueRaw
     where
         Self: 'a;
 
@@ -61,7 +60,7 @@ impl VectorElement for UuidValueRaw {
         Self: Sized + 'a,
     {
         let data_ptr = vector.view.as_ref().unwrap().as_ptr() as *const UuidValueRaw;
-        unsafe { &*data_ptr.add(physical) }
+        unsafe { data_ptr.add(physical).read_unaligned() }
     }
 }
 
@@ -130,7 +129,7 @@ mod external {
             Self: 'a,
         {
             // SAFETY: same storage as `UuidValueRaw`; the caller upholds the contract.
-            Self::from(*unsafe { UuidValueRaw::get(vector, physical, logical) })
+            Self::from(unsafe { UuidValueRaw::get(vector, physical, logical) })
         }
     }
 

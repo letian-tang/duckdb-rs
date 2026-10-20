@@ -65,7 +65,7 @@ macro_rules! decimal_storage {
 
                 type Internal = $type;
 
-                type Ref<'a> = &'a $name;
+                type Ref<'a> = $name;
 
                 fn validate(other: &LogicalType, _children: Option<&VectorCollection>) -> Result<bool> {
                     if other.type_id() != Self::TYPE_ID {
@@ -79,7 +79,7 @@ macro_rules! decimal_storage {
                     Self: 'a,
                 {
                     let data_ptr = vector.view.as_ref().unwrap().as_ptr() as *const $name;
-                    unsafe { &*data_ptr.add(physical) }
+                    unsafe { data_ptr.add(physical).read_unaligned() }
                 }
             }
 
@@ -238,7 +238,7 @@ where
 
     type Internal = <Width<WIDTH> as DecimalWidth>::Storage;
 
-    type Ref<'a> = &'a Self;
+    type Ref<'a> = Self;
 
     fn validate(other: &LogicalType, _children: Option<&VectorCollection>) -> Result<bool> {
         if other.type_id() != Self::TYPE_ID {
@@ -256,7 +256,7 @@ where
         Self: 'a,
     {
         let data_ptr = vector.view.as_ref().unwrap().as_ptr() as *const Self;
-        unsafe { &*data_ptr.add(physical) }
+        unsafe { data_ptr.add(physical).read_unaligned() }
     }
 }
 
@@ -420,16 +420,13 @@ mod tests {
         )?;
         let chunk = result.next_chunk()?.expect("query returned no rows");
 
-        assert_eq!(
-            chunk.get_vector_at::<ShortDecimal>(0)?.get(0)?,
-            Some(&ShortDecimal(-15))
-        );
+        assert_eq!(chunk.get_vector_at::<ShortDecimal>(0)?.get(0)?, Some(ShortDecimal(-15)));
         assert_eq!(
             chunk.get_vector_at::<WordDecimal>(1)?.get(0)?,
-            Some(&WordDecimal(12_345))
+            Some(WordDecimal(12_345))
         );
-        assert_eq!(chunk.get_vector_at::<LongDecimal>(2)?.get(0)?, Some(&LongDecimal(15)));
-        assert_eq!(chunk.get_vector_at::<HugeDecimal>(3)?.get(0)?, Some(&HugeDecimal(15)));
+        assert_eq!(chunk.get_vector_at::<LongDecimal>(2)?.get(0)?, Some(LongDecimal(15)));
+        assert_eq!(chunk.get_vector_at::<HugeDecimal>(3)?.get(0)?, Some(HugeDecimal(15)));
 
         assert!(chunk.get_vector_at::<WordDecimal>(0).is_err());
         assert!(chunk.get_vector_at::<HugeDecimal>(2).is_err());
@@ -474,7 +471,7 @@ mod tests {
             ]),
         )?;
         let chunk = result.next_chunk()?.expect("query returned no rows");
-        assert_eq!(chunk.get_vector_at::<Decimal<18, 3>>(0)?.get(0)?, Some(&decimal));
+        assert_eq!(chunk.get_vector_at::<Decimal<18, 3>>(0)?.get(0)?, Some(decimal));
         assert_eq!(chunk.get_vector_at::<Decimal<4, 1>>(1)?.get(0)?, None);
         assert_eq!(
             chunk.get_vector_at::<String>(2)?.get(0)?.map(|s| s.to_string()),
@@ -488,7 +485,7 @@ mod tests {
         vector.set_size(2)?;
         vector.write(0, Some(Decimal::new(-1)))?;
         vector.write(1, None)?;
-        assert_eq!(vector.get(0)?, Some(&Decimal::new(-1)));
+        assert_eq!(vector.get(0)?, Some(Decimal::new(-1)));
         assert_eq!(vector.get(1)?, None);
 
         Ok(())

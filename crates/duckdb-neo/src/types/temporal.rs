@@ -95,6 +95,14 @@ declare_storage_value!(
     TimeTz,
     ffi::duckdb_v2_value_get_time_tz
 );
+impl TimeTzValue {
+    /// Local wall-clock time; the UTC offset is intentionally omitted.
+    pub fn local_time(self) -> TimeValue {
+        // dtime_tz_t reserves its low 24 bits for the biased UTC offset.
+        TimeValue((self.0 >> 24) as i64)
+    }
+}
+
 declare_storage_value!(
     "Microseconds since 1970-01-01 represented as a DuckDB `TIMESTAMP`.",
     TimestampValue,

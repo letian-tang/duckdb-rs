@@ -731,30 +731,30 @@ pub fn test_vector_map() -> crate::Result<()> {
 
     let hmap = row.to_hash_map()?;
 
-    assert_eq!(hmap.get(&1).unwrap(), &Some(&ShortDecimal(121)));
-    assert_eq!(hmap.get(&2).unwrap(), &Some(&ShortDecimal(412)));
+    assert_eq!(hmap.get(&1).unwrap(), &Some(ShortDecimal(121)));
+    assert_eq!(hmap.get(&2).unwrap(), &Some(ShortDecimal(412)));
 
     assert_eq!(row.keys()?, vec![&1, &2]);
-    assert_eq!(row.values()?, vec![Some(&ShortDecimal(121)), Some(&ShortDecimal(412))]);
+    assert_eq!(row.values()?, vec![Some(ShortDecimal(121)), Some(ShortDecimal(412))]);
 
-    assert_eq!(row.get(&1)?, Some(&ShortDecimal(121)));
-    assert_eq!(row.get(&2)?, Some(&ShortDecimal(412)));
+    assert_eq!(row.get(&1)?, Some(ShortDecimal(121)));
+    assert_eq!(row.get(&2)?, Some(ShortDecimal(412)));
 
     let row = reader.next().unwrap().unwrap();
 
-    assert_eq!(row.get(&1)?, Some(&ShortDecimal(1121)));
-    assert_eq!(row.get(&2)?, Some(&ShortDecimal(1412)));
+    assert_eq!(row.get(&1)?, Some(ShortDecimal(1121)));
+    assert_eq!(row.get(&2)?, Some(ShortDecimal(1412)));
 
     let row = reader.next().unwrap().unwrap();
 
     let hmap = row.to_hash_map()?;
 
     assert_eq!(hmap.get(&1), Some(&None));
-    assert_eq!(hmap.get(&2), Some(&Some(&ShortDecimal(412))));
+    assert_eq!(hmap.get(&2), Some(&Some(ShortDecimal(412))));
 
     assert_eq!(row.get(&1)?, None);
-    assert_eq!(row.get(&2)?, Some(&ShortDecimal(412)));
-    assert_eq!(row.values()?, vec![None, Some(&ShortDecimal(412))]);
+    assert_eq!(row.get(&2)?, Some(ShortDecimal(412)));
+    assert_eq!(row.values()?, vec![None, Some(ShortDecimal(412))]);
 
     assert!(reader.next().is_none());
 
@@ -1037,7 +1037,10 @@ pub fn vector_value_types() -> crate::Result<()> {
             let mut result = conn.query("SELECT $1", Parameters::positional(&[&input]))?;
             let chunk = result.next_chunk()?.unwrap();
             let vector = chunk.get_vector_at::<$type>(0)?;
-            assert_eq!(vector.get(0)?, Some(&input));
+            assert_eq!(
+                vector.get(0)?.map(|v| *std::borrow::Borrow::<$type>::borrow(&v)),
+                Some(input)
+            );
             drop(chunk);
             drop(result);
         }};
@@ -1069,7 +1072,7 @@ pub fn vector_value_types() -> crate::Result<()> {
     )?;
     let chunk = result.next_chunk()?.unwrap();
     let vector = chunk.get_vector_at::<LongDecimal>(0)?;
-    assert_eq!(vector.get(0)?, Some(&LongDecimal(-123_456)));
+    assert_eq!(vector.get(0)?, Some(LongDecimal(-123_456)));
     drop(chunk);
     drop(result);
 
@@ -1117,7 +1120,10 @@ pub fn vector_writable_value_types() -> crate::Result<()> {
             let value = $value;
             vector.write(0, Some(value))?;
             vector.write(1, None)?;
-            assert_eq!(vector.get(0)?, Some(&value));
+            assert_eq!(
+                vector.get(0)?.map(|v| *std::borrow::Borrow::<$type>::borrow(&v)),
+                Some(value)
+            );
             assert_eq!(vector.get(1)?, None);
         }};
     }
@@ -1153,7 +1159,7 @@ pub fn vector_writable_value_types() -> crate::Result<()> {
     vector.set_size(2)?;
     vector.write(0, Some(LongDecimal(-123_456)))?;
     vector.write(1, None)?;
-    assert_eq!(vector.get(0)?, Some(&LongDecimal(-123_456)));
+    assert_eq!(vector.get(0)?, Some(LongDecimal(-123_456)));
     assert_eq!(vector.get(1)?, None);
 
     let mut chunk = DataChunk::create(&conn, &[BlobValue::logical_type(&conn)?], true)?;
@@ -2165,5 +2171,45 @@ fn test_vector_cast_fails() -> crate::Result<()> {
         "{error}"
     );
 
+    Ok(())
+}
+
+#[test]
+fn native_eight_byte_aligned_wide_values_are_read_without_aligned_references() -> crate::Result<()> {
+    use crate::types::{Decimal, HugeDecimal};
+    // Column collections can place 128-bit values at an 8-byte boundary.
+    // Force that layout deterministically instead of relying on allocator luck.
+    let mut storage = [0_u128; 2];
+    let pointer = unsafe { storage.as_mut_ptr().cast::<u8>().add(8) };
+    assert_ne!(pointer as usize % std::mem::align_of::<i128>(), 0);
+    let conn = Environment::new()?.open(StorageLocation::InMemory)?.connect()?;
+    let mut result = conn.query(
+        "SELECT 1::HUGEINT, 1::UHUGEINT, 1::DECIMAL(28,2), UUID '00000000-0000-0000-0000-000000000001'",
+        Parameters::None,
+    )?;
+    let mut chunk = result.next_chunk()?.unwrap();
+    unsafe { pointer.cast::<i128>().write_unaligned(-12345) };
+    let mut signed = chunk.get_vector_at_mut::<i128>(0)?;
+    signed.view.as_mut().unwrap().view.data = pointer.cast();
+    assert_eq!(signed.get(0)?, Some(-12345));
+    let mut decimal = chunk.get_vector_at_mut::<HugeDecimal>(2)?;
+    decimal.view.as_mut().unwrap().view.data = pointer.cast();
+    assert_eq!(decimal.get(0)?, Some(HugeDecimal(-12345)));
+    let mut fixed = chunk.get_vector_at_mut::<Decimal<28, 2>>(2)?;
+    fixed.view.as_mut().unwrap().view.data = pointer.cast();
+    assert_eq!(fixed.get(0)?, Some(Decimal::<28, 2>::new(-12345)));
+    #[cfg(feature = "rust_decimal")]
+    {
+        let mut decimal = chunk.get_vector_at_mut::<rust_decimal::Decimal>(2)?;
+        decimal.view.as_mut().unwrap().view.data = pointer.cast();
+        assert_eq!(decimal.get(0)?, Some(rust_decimal::Decimal::new(-12345, 2)));
+    }
+    let mut uuid = chunk.get_vector_at_mut::<UuidValueRaw>(3)?;
+    uuid.view.as_mut().unwrap().view.data = pointer.cast();
+    assert_eq!(uuid.get(0)?, Some(UuidValueRaw(-12345)));
+    unsafe { pointer.cast::<u128>().write_unaligned(u128::MAX - 12345) };
+    let mut unsigned = chunk.get_vector_at_mut::<u128>(1)?;
+    unsigned.view.as_mut().unwrap().view.data = pointer.cast();
+    assert_eq!(unsigned.get(0)?, Some(u128::MAX - 12345));
     Ok(())
 }

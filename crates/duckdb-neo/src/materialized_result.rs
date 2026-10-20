@@ -24,6 +24,8 @@ pub struct MaterializedResult {
     changed_rows: usize,
     row_count: usize,
     remaining: usize,
+    row_index: usize,
+    current_rows: usize,
 }
 
 // SAFETY: no query or connection factory is retained. The scan exclusively
@@ -31,7 +33,36 @@ pub struct MaterializedResult {
 // Moving between workers is supported; concurrent scan operations are not.
 unsafe impl Send for MaterializedResult {}
 
+/// A borrowed row in a detached result. Vectors and values cannot outlive the result borrow.
+#[derive(Debug)]
+pub struct ResultRow<'a> {
+    pub chunk: &'a crate::data_chunk::DataChunk<'static>,
+    pub index: usize,
+}
+
 impl MaterializedResult {
+    /// Advance by one row without copying a chunk or retaining a session.
+    /// Use either row iteration or chunk iteration for a result, not both.
+    pub fn next_row(&mut self) -> Result<Option<ResultRow<'_>>> {
+        if self.row_index >= self.current_rows {
+            let count = match self.next_chunk()? {
+                Some(chunk) => chunk.row_count()?,
+                None => return Ok(None),
+            };
+            self.row_index = 0;
+            self.current_rows = count;
+            if count == 0 {
+                return Ok(None);
+            }
+        }
+        let index = self.row_index;
+        self.row_index += 1;
+        Ok(Some(ResultRow {
+            chunk: self.scan.as_ref().unwrap().current_chunk(),
+            index,
+        }))
+    }
+
     /// Finish `result`, preserving its remaining rows in independent buffer-managed storage.
     /// Errors destroy both the partial collection and the running query.
     pub fn collect(connection: &Connection, mut result: QueryResult<'_>) -> Result<Self> {
@@ -48,6 +79,8 @@ impl MaterializedResult {
             changed_rows: 0,
             row_count: 0,
             remaining: 0,
+            row_index: 0,
+            current_rows: 0,
         };
         if output.result_type != ResultType::QueryResult {
             if output.result_type == ResultType::ChangedRows {

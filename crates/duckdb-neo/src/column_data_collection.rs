@@ -329,6 +329,9 @@ pub struct ColumnDataCollectionScan<'conn> {
 }
 
 impl<'conn> ColumnDataCollectionScan<'conn> {
+    pub(crate) fn current_chunk(&self) -> &DataChunk<'conn> {
+        &self.chunk
+    }
     fn new(collection: ColumnDataCollection<'conn>) -> Result<Self> {
         let worker_scan_state = collection.create_worker_scan_state()?;
         let shared_scan_state = collection.create_shared_scan_state()?;
@@ -378,6 +381,9 @@ impl<'conn> ColumnDataCollectionScan<'conn> {
     /// # }
     /// ```
     pub fn next_chunk(&mut self) -> Result<Option<DataChunkRef<'_>>> {
+        // The native scan replaces vector buffers; cached views from the previous
+        // row iteration would otherwise keep pointing at the previous chunk.
+        self.chunk.evict_cached();
         let did_produce_chunk: bool = check_api_call!(
             ffi::duckdb_v2_column_data_collection_scan,
             self.collection.handle,

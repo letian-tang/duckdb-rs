@@ -330,3 +330,8 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(feature = "arrow-scalar")]
+pub use arrow_rs;
+#[cfg(feature = "arrow-scalar")]
+pub mod arrow_scalar;

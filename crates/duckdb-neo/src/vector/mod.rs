@@ -187,7 +187,8 @@ impl<T: VectorElement> VectorView<T> {
     ///
     /// # Safety
     ///
-    /// Slices can return uninitialized memory for unselected or null entries.
+    /// The data pointer must be aligned for `T::Internal` (native 128-bit storage may
+    /// only be 8-byte aligned). Slices can return uninitialized memory for unselected or null entries.
     /// The caller is responsible for ensuring that they read only initialized and valid entries using the [`Self::selection`] and [`Self::validity`] methods.
     pub unsafe fn as_slice(&self) -> Option<&[T::Internal]> {
         if self.view.data.is_null() {
@@ -205,7 +206,7 @@ impl<T: VectorElement> VectorView<T> {
     ///
     /// # Safety
     ///
-    /// As for [`Self::as_slice`], the caller must read only initialized and valid entries.
+    /// As for [`Self::as_slice`], the caller must check alignment and read only initialized and valid entries.
     /// Every entry written must be a valid value of the vector's type whose out-of-line data,
     /// such as a string's bytes, outlives the vector; do not copy such entries from another vector.
     pub unsafe fn as_slice_mut(&mut self) -> Option<&mut [T::Internal]> {
@@ -576,7 +577,7 @@ impl<'a, T: VectorElement> Vector<'a, T> {
             let view = self.view.as_mut().ok_or_else(not_writable)?;
             let data = view.as_ptr() as *mut U;
             unsafe {
-                data.add(index).write(value);
+                data.add(index).write_unaligned(value);
             }
         }
         self.set_row_validity(index, is_valid)

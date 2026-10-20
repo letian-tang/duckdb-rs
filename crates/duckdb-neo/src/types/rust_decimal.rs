@@ -76,10 +76,10 @@ impl VectorElement for rust_decimal::Decimal {
         let data = vector.view.as_ref().unwrap().as_ptr() as *const u8;
         let value = unsafe {
             match width {
-                1..=4 => i128::from(*(data as *const i16).add(physical)),
-                5..=9 => i128::from(*(data as *const i32).add(physical)),
-                10..=18 => i128::from(*(data as *const i64).add(physical)),
-                _ => *(data as *const i128).add(physical),
+                1..=4 => i128::from((data as *const i16).add(physical).read_unaligned()),
+                5..=9 => i128::from((data as *const i32).add(physical).read_unaligned()),
+                10..=18 => i128::from((data as *const i64).add(physical).read_unaligned()),
+                _ => (data as *const i128).add(physical).read_unaligned(),
             }
         };
         rust_decimal::Decimal::from_i128_with_scale(value, u32::from(scale))

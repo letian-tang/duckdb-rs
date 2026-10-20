@@ -109,8 +109,8 @@ extern "C" char *duckdb_rs_scalar_set_fallible(duckdb_scalar_function function) 
 }
 #endif
 
-// Called only with the Rust connection exclusively borrowed. Reading these
-// connection-local flags neither executes SQL nor starts a transaction.
+// Called on the owning session thread. Reading these connection-local flags
+// neither executes SQL nor starts a transaction.
 extern "C" unsigned char duckdb_rs_transaction_state(NativeConnectionHandle handle) noexcept {
     auto &connection = NativeConnection(handle);
     auto &transaction = connection.context->transaction;

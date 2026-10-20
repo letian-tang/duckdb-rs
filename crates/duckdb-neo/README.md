@@ -101,7 +101,8 @@ For a protocol cursor retained between commands, use
 completion and stores chunks in a DuckDB buffer-managed column collection.
 `MaterializedResult` owns the database lifetime, can move between workers, and
 does not reserve or borrow the original session. Its `next_chunk()` returns a
-borrowed chunk that cannot survive the next scan call. Its schema preserves
+borrowed chunk that cannot survive the next scan call. `next_row()` provides
+a borrowed row without copying chunks; choose one iteration mode per result. Its schema preserves
 logical types, including DECIMAL width/scale. This API does not enforce any
 particular wire protocol's cursor-close or transaction policy.
 
@@ -110,7 +111,7 @@ host and `Connection::transaction_state()`. Extensions implement
 `duckdb_neo_rs::SqlFrontendExtension` in the exported
 `DEP_DUCKDB_NEO_FRONTEND_INCLUDE` headers, using the matching engine headers at
 `DEP_DUCKDB_NEO_FRONTEND_DUCKDB_INCLUDE`. Connection-bound frontend operations
-require an exclusive Rust borrow. Strings, callback panic containment and
+use the same non-Sync session; execution and preparation respect DuckDB's active-query guards. Strings, callback panic containment and
 exception containment belong to the driver. This is a narrow bridge for
 capabilities not exposed by V2, rather than a general C++ AST binding.
 V1 and V2 hosts use separate symbols and share their containment implementation
@@ -119,6 +120,9 @@ from `libduckdb-sys/native/frontend_host.cpp`.
 ## Feature flags
 
 ### Integrations
+
+- `arrow-scalar` - Batched Arrow Rust callbacks through V2, with checked return types, special NULL handling and fallible errors.
+- `bundled-cmake-json` - Statically link the JSON extension through the CMake backend.
 
 - `chrono` - Convert DuckDB `DATE`, `TIME`, and `TIMESTAMP` values to [`chrono`](https://docs.rs/chrono) types.
 - `r2d2` - `duckdb_neo::r2d2::ConnectionManager`, a connection pool manager for [r2d2](https://github.com/sfackler/r2d2).

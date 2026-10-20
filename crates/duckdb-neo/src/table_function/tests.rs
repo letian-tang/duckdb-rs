@@ -440,7 +440,7 @@ fn test_table_function_partitioning() -> crate::Result<()> {
         let sums = chunk.get_vector_at::<i128>(1)?;
 
         for row in 0..parts.len() {
-            rows.push((*parts.get(row)?.unwrap(), *sums.get(row)?.unwrap()));
+            rows.push((*parts.get(row)?.unwrap(), sums.get(row)?.unwrap()));
         }
     }
 
