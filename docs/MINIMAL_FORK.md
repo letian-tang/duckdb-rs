@@ -1,6 +1,6 @@
 # Minimal Neo fork
 
-Baseline: official duckdb/duckdb-rs `7707051` (Neo API refactor #907, 2026-10-20).
+Baseline: official duckdb/duckdb-rs `89e4b36` (instance builder rework #909, 2026-10-20).
 The pinned DuckDB source is unchanged. The traditional `duckdb` crate and
 `libduckdb-sys` match that baseline. Prior V1 additions remain in old commits/tags.
 
@@ -17,7 +17,9 @@ Remaining additions:
 | `OwnedColumnDataCollectionScan` | Upstream scan handles are not Send. Only a scan verified to own its instance factory can move between workers; a static borrowed factory is rejected too. |
 | `current_chunk` | Borrow the current native scan chunk for row-at-a-time protocol adaptation without copying it. Cache invalidation follows native scan advancement. |
 | 128-bit vector alignment fixes | Native storage can be aligned to 8 bytes, while Rust i128/u128 require 16. Return copied values with unaligned access, without creating invalid references. |
-| `bundled-cmake-json` | Forward the existing sys JSON feature that Neo does not expose. No JSON implementation is added. |
+
+Removed redundant `bundled-cmake-json`: upstream `bundled-cmake` plus
+`bundled-json` enables the same sys features without a fork alias.
 
 Removed after #907: `DataChunkRef::get_untyped_vector_at`; upstream now accepts
 `get_vector_at::<Unknown>()` for dynamic read-only access.

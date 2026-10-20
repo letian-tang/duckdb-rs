@@ -47,7 +47,6 @@ bundled-parquet = ["bundled", "libduckdb-sys/parquet"]
 
 bundled-cmake = ["bundled", "libduckdb-sys/bundled-cmake"]
 # Extensions statically linked through the CMake build backend.
-bundled-cmake-json = ["bundled-cmake", "libduckdb-sys/json"]
 bundled-cmake-autocomplete = ["bundled-cmake", "libduckdb-sys/autocomplete"]
 bundled-cmake-httpfs = ["bundled-cmake", "libduckdb-sys/httpfs"]
 bundled-cmake-icu = ["bundled-cmake", "libduckdb-sys/icu"]

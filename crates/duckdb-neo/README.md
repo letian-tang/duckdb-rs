@@ -111,8 +111,6 @@ The remaining additions fill safe interface gaps:
   `DEP_DUCKDB_NEO_FRONTEND_DUCKDB_INCLUDE` headers.
 - 128-bit integer, decimal and UUID vector access handles native 8-byte alignment
   without constructing misaligned Rust references.
-- `bundled-cmake-json` forwards the existing sys JSON feature, which upstream Neo
-  does not currently expose. It adds no JSON implementation.
 
 Query-to-collection orchestration and MySQL cursor policy belong to consumers.
 The traditional `duckdb` crate and `libduckdb-sys` match the upstream baseline;
@@ -122,7 +120,7 @@ old V1 fork APIs remain available only in their prior commits/tags.
 
 ### Integrations
 
-- `bundled-cmake-json` - Statically link the JSON extension through the CMake backend.
+- Enable upstream `bundled-cmake` and `bundled-json` together to statically link JSON.
 
 - `chrono` - Convert DuckDB `DATE`, `TIME`, and `TIMESTAMP` values to [`chrono`](https://docs.rs/chrono) types.
 - `r2d2` - `duckdb_neo::r2d2::ConnectionManager`, a connection pool manager for [r2d2](https://github.com/sfackler/r2d2).
