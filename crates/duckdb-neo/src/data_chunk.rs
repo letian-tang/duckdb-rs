@@ -434,6 +434,14 @@ impl Deref for DataChunkRef<'_> {
 }
 
 impl<'a> DataChunkRef<'a> {
+    /// Return a read-only vector before its runtime logical type is known.
+    ///
+    /// Use [`Vector::cast_ref`] for typed access, or [`Vector::get_value_slow`]
+    /// when decoding heterogeneous metadata. The vector borrows this chunk.
+    pub fn get_untyped_vector_at(&self, index: usize) -> Result<&Vector<'_, Unknown>> {
+        self.vectors.get_untyped_vector_at(index)
+    }
+
     pub(crate) fn new(handle: ffi::duckdb_v2_data_chunk_handle, is_writable: bool) -> Result<Self> {
         let count: ffi::idx_t = check_api_call!(ffi::duckdb_v2_data_chunk_get_vector_count, handle, RET)?;
         let mut handles = Vec::with_capacity(count as usize);

@@ -1,12 +1,28 @@
 #include "duckdb.hpp"
 #include "duckdb/function/scalar_function.hpp"
+#ifdef DUCKDB_RS_FRONTEND_V2
+#include "duckdb_neo_rs/native_frontend.hpp"
+#else
 #include "duckdb_rs/native_frontend.hpp"
+#endif
 #include "duckdb/transaction/transaction_context.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/main/valid_checker.hpp"
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
+#ifdef DUCKDB_RS_FRONTEND_V2
+#include "duckdb/main/capi_v2/capi_v2_internal.hpp"
+using NativeConnectionHandle = duckdb_v2_connection_handle;
+static duckdb::Connection &NativeConnection(NativeConnectionHandle handle) {
+    return *duckdb::capiv2::Convert(handle);
+}
+#else
+using NativeConnectionHandle = duckdb_connection;
+static duckdb::Connection &NativeConnection(NativeConnectionHandle handle) {
+    return *reinterpret_cast<duckdb::Connection *>(handle);
+}
+#endif
 
 namespace {
 struct Registry {
@@ -46,10 +62,10 @@ struct DuckdbRsRewriteReply { char *value; int status; };
 using Callback = DuckdbRsRewriteReply (*)(void *, const char *);
 using FreeReply = void (*)(char *);
 
-extern "C" char *duckdb_rs_frontend_initialize(const char *name, duckdb_connection connection) noexcept {
+extern "C" char *duckdb_rs_frontend_initialize(const char *name, NativeConnectionHandle connection) noexcept {
     return Guard([&]() -> std::string {
         if (!connection) throw duckdb::InvalidInputException("missing connection");
-        Find(name)->Initialize(*reinterpret_cast<duckdb::Connection *>(connection));
+        Find(name)->Initialize(NativeConnection(connection));
         return "OK";
     });
 }
@@ -73,16 +89,17 @@ extern "C" char *duckdb_rs_frontend_rewrite(const char *name, const char *sql, b
         return Find(name)->Rewrite(sql, dialect, invoke);
     });
 }
-extern "C" char *duckdb_rs_frontend_read_only(const char *name, duckdb_connection connection, const char *sql) noexcept {
+extern "C" char *duckdb_rs_frontend_read_only(const char *name, NativeConnectionHandle connection, const char *sql) noexcept {
     return Guard([&]() -> std::string {
         if (!connection) throw duckdb::InvalidInputException("missing connection");
-        return Find(name)->IsReadOnly(*reinterpret_cast<duckdb::Connection *>(connection), sql) ? "true" : "false";
+        return Find(name)->IsReadOnly(NativeConnection(connection), sql) ? "true" : "false";
     });
 }
 extern "C" void duckdb_rs_frontend_free(char *value) noexcept { delete[] value; }
 
 // The pinned engine's v1 C API does not expose SetFallible. Rust UDFs can
 // return errors, so mark them before registration using the matching C++ type.
+#ifndef DUCKDB_RS_FRONTEND_V2
 extern "C" char *duckdb_rs_scalar_set_fallible(duckdb_scalar_function function) noexcept {
     return Guard([&]() -> std::string {
         if (!function) throw duckdb::InvalidInputException("missing scalar function");
@@ -90,11 +107,12 @@ extern "C" char *duckdb_rs_scalar_set_fallible(duckdb_scalar_function function) 
         return "OK";
     });
 }
+#endif
 
 // Called only with the Rust connection exclusively borrowed. Reading these
 // connection-local flags neither executes SQL nor starts a transaction.
-extern "C" unsigned char duckdb_rs_transaction_state(duckdb_connection handle) noexcept {
-    auto &connection = *reinterpret_cast<duckdb::Connection *>(handle);
+extern "C" unsigned char duckdb_rs_transaction_state(NativeConnectionHandle handle) noexcept {
+    auto &connection = NativeConnection(handle);
     auto &transaction = connection.context->transaction;
     unsigned char state = transaction.IsAutoCommit() ? 1 : 0;
     if (transaction.HasActiveTransaction()) {

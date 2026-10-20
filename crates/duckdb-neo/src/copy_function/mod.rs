@@ -108,7 +108,8 @@ unsafe extern "C" fn batch_to_callback<T: CopyToFunctionCallbacks>(
             let collection = ColumnDataCollection {
                 handle: check_api_call!(ffi::duckdb_v2_copy_to_batch_take_input, info, RET)?,
                 logical_types: bind_data.logical_types.clone(),
-                factory: context.factory()?,
+                factory: crate::column_data_collection::CollectionFactory::Borrowed(context.factory()?),
+                retained_databases: Vec::new(),
                 column_names: None,
                 origin: None,
             };

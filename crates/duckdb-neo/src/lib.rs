@@ -50,6 +50,9 @@ pub mod error;
 pub(crate) mod ffi_str;
 pub mod log_sink;
 pub mod logical_type;
+pub mod materialized_result;
+#[cfg(feature = "native-frontend")]
+pub mod native_frontend;
 pub(crate) mod parameter;
 pub mod query_result;
 pub mod raw;

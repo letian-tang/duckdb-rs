@@ -13,6 +13,8 @@ readme = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 
+links = "duckdb_neo_frontend"
+
 [lib]
 name = "duckdb_neo"
 
@@ -26,6 +28,8 @@ chrono = ["dep:chrono"]
 r2d2 = ["dep:r2d2"]
 uuid = ["dep:uuid"]
 rust_decimal = ["dep:rust_decimal"]
+
+native-frontend = ["bundled-cmake", "dep:cc", "dep:serde_json"]
 
 # Buildtime features
 # Where to find a prebuilt libduckdb. Not needed with `bundled`; opt out with `default-features = false`.
@@ -61,6 +65,11 @@ paste = { workspace = true }
 r2d2 = { workspace = true, optional = true }
 rust_decimal = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+
+serde_json = { workspace = true, optional = true }
+
+[build-dependencies]
+cc = { workspace = true, optional = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }

@@ -1,0 +1,10 @@
+// Share exception containment and callback ownership with the V1 host.
+#define DUCKDB_RS_FRONTEND_V2
+#define duckdb_rs duckdb_neo_rs
+#define duckdb_rs_frontend_initialize duckdb_neo_rs_frontend_initialize
+#define duckdb_rs_frontend_parse duckdb_neo_rs_frontend_parse
+#define duckdb_rs_frontend_rewrite duckdb_neo_rs_frontend_rewrite
+#define duckdb_rs_frontend_read_only duckdb_neo_rs_frontend_read_only
+#define duckdb_rs_frontend_free duckdb_neo_rs_frontend_free
+#define duckdb_rs_transaction_state duckdb_neo_rs_transaction_state
+#include <frontend_host.cpp>

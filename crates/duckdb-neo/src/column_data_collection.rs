@@ -7,6 +7,32 @@
 use crate::column_data_collection::ColumnParameter::{Named, Positional};
 use crate::connection::HasFactory;
 use crate::ffi;
+use crate::{connection::Connection, database::DatabaseHandle};
+use std::{
+    ops::Deref,
+    sync::{Arc, Mutex},
+};
+
+// A detached collection uses the instance factory, never a factory borrowed
+// from a session that can be reset or dropped while the collection is idle.
+#[derive(Debug)]
+pub(crate) enum CollectionFactory<'a> {
+    Borrowed(&'a Factory),
+    Owned {
+        factory: Factory,
+        _database: Arc<Mutex<DatabaseHandle>>,
+    },
+}
+
+impl Deref for CollectionFactory<'_> {
+    type Target = Factory;
+    fn deref(&self) -> &Factory {
+        match self {
+            Self::Borrowed(factory) => factory,
+            Self::Owned { factory, .. } => factory,
+        }
+    }
+}
 
 use crate::{
     AsRaw, DropHandle, Factory, Result, check_api_call,
@@ -117,10 +143,12 @@ impl<S: Into<String> + Clone, const N: usize> From<&[(LogicalType, S); N]> for C
 ///
 /// # Lifetime
 ///
-/// A collection reads and writes its data through the buffer manager of the
-/// connection it was created from, so it borrows that
+/// A collection created with [`Self::new`] reads and writes its data through
+/// the buffer manager of its creating connection, so it borrows that
 /// [`Connection`](crate::connection::Connection) or callback
 /// [`Context`](crate::connection::Context) for `'conn`.
+/// [`Self::new_owned`] instead pins the database and its instance factory,
+/// allowing the collection to outlive the creating session.
 ///
 /// To let queries read a collection after that borrow ends, hand it to a
 /// replacement scan registered on the same connection with
@@ -179,7 +207,10 @@ pub struct ColumnDataCollection<'conn> {
     pub(crate) handle: ffi::duckdb_v2_column_data_collection_handle,
     pub(crate) logical_types: Vec<LogicalType>,
     pub(crate) column_names: Option<Vec<String>>,
-    pub(crate) factory: &'conn Factory,
+    pub(crate) factory: CollectionFactory<'conn>,
+    // `combine` can move buffer-managed blocks from independent instances.
+    // Those instances must survive until the combined collection is destroyed.
+    pub(crate) retained_databases: Vec<Arc<Mutex<DatabaseHandle>>>,
     pub(crate) origin: Option<ffi::duckdb_v2_connection_handle>,
 }
 
@@ -191,8 +222,19 @@ impl<'conn> ColumnDataCollection<'conn> {
     /// `columns` is anything that converts into a [`ColumnParameter`].
     #[allow(private_bounds)]
     pub fn new<C: HasFactory + ConnectionOrigin>(link: &'conn C, columns: impl Into<ColumnParameter>) -> Result<Self> {
-        let factory = link.factory()?;
-        let (logical_types, names) = match columns.into() {
+        Self::create(
+            CollectionFactory::Borrowed(link.factory()?),
+            link.connection_origin(),
+            columns.into(),
+        )
+    }
+
+    fn create(
+        factory: CollectionFactory<'conn>,
+        origin: Option<ffi::duckdb_v2_connection_handle>,
+        columns: ColumnParameter,
+    ) -> Result<Self> {
+        let (logical_types, names) = match columns {
             Positional(logical_types) => (logical_types, None),
             Named(columns) => {
                 let (logical_types, names) = columns.into_iter().unzip();
@@ -214,7 +256,8 @@ impl<'conn> ColumnDataCollection<'conn> {
             logical_types,
             column_names: names,
             factory,
-            origin: link.connection_origin(),
+            retained_databases: Vec::new(),
+            origin,
         })
     }
 
@@ -236,6 +279,30 @@ impl<'conn> ColumnDataCollection<'conn> {
     /// Consume the collection and initialize an iterator over its chunks.
     pub fn to_scan(self) -> Result<ColumnDataCollectionScan<'conn>> {
         ColumnDataCollectionScan::new(self)
+    }
+}
+
+impl ColumnDataCollection<'static> {
+    /// Create storage that owns its database lifetime and does not borrow a session.
+    ///
+    /// Data is held in DuckDB's buffer manager, including its spilling policy.
+    /// The collection can outlive the creating connection. It cannot be used as
+    /// a connection-local replacement scan; use [`Self::new`] for that purpose.
+    pub fn new_owned(connection: &Connection, columns: impl Into<ColumnParameter>) -> Result<Self> {
+        let database = Arc::clone(&connection._db);
+        let factory = check_api_call!(
+            ffi::duckdb_v2_instance_get_factory,
+            database.lock().unwrap().handle,
+            RET
+        )?;
+        Self::create(
+            CollectionFactory::Owned {
+                factory: Factory::new(factory),
+                _database: database,
+            },
+            None,
+            columns.into(),
+        )
     }
 }
 
@@ -265,7 +332,19 @@ impl<'conn> ColumnDataCollectionScan<'conn> {
     fn new(collection: ColumnDataCollection<'conn>) -> Result<Self> {
         let worker_scan_state = collection.create_worker_scan_state()?;
         let shared_scan_state = collection.create_shared_scan_state()?;
-        let chunk = DataChunk::create(collection.factory, &collection.logical_types, false)?;
+        let types = collection.logical_types.iter().map(|ty| ty.handle).collect::<Vec<_>>();
+        // The scan owns `collection`, which keeps its factory and allocator
+        // alive until after this chunk and both scan states have been dropped.
+        let chunk = DataChunk::new(
+            check_api_call!(
+                ffi::duckdb_v2_data_chunk_create,
+                collection.factory.raw(),
+                types.as_ptr(),
+                types.len() as u64,
+                RET
+            )?,
+            false,
+        )?;
 
         Ok(ColumnDataCollectionScan {
             collection,
@@ -371,6 +450,14 @@ impl<'conn> ColumnDataCollectionAppender<'conn> {
     /// manager of `other`'s connection, so a collection combined from two
     /// connections can no longer be handed to a replacement scan.
     pub fn combine(&mut self, mut other: ColumnDataCollection<'conn>) -> Result<()> {
+        // Pin before mutating native storage, including a possible partial
+        // combine failure. Keeping an extra owner on failure is harmless.
+        self.collection
+            .retained_databases
+            .extend(other.retained_databases.iter().map(Arc::clone));
+        if let CollectionFactory::Owned { _database, .. } = &other.factory {
+            self.collection.retained_databases.push(Arc::clone(_database));
+        }
         check_api_call!(
             ffi::duckdb_v2_column_data_collection_combine,
             self.collection.handle,

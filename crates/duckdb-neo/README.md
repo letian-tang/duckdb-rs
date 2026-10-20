@@ -89,6 +89,33 @@ fn main() -> Result<()> {
 
 Execute the program with `cargo run` and watch DuckDB in action!
 
+## Detached results and sessions (fork extension)
+
+`Connection::new_session()` opens an independent session on the same database.
+Transactions, temporary tables and session settings belong to each session;
+commands in one client transaction must keep using the original connection.
+
+V2 query results are lazy and occupy their connection until execution finishes.
+For a protocol cursor retained between commands, use
+`Connection::query_materialized(statement, parameters)`. It executes once to
+completion and stores chunks in a DuckDB buffer-managed column collection.
+`MaterializedResult` owns the database lifetime, can move between workers, and
+does not reserve or borrow the original session. Its `next_chunk()` returns a
+borrowed chunk that cannot survive the next scan call. Its schema preserves
+logical types, including DECIMAL width/scale. This API does not enforce any
+particular wire protocol's cursor-close or transaction policy.
+
+The optional `native-frontend` feature exposes the generic C++ SQL frontend
+host and `Connection::transaction_state()`. Extensions implement
+`duckdb_neo_rs::SqlFrontendExtension` in the exported
+`DEP_DUCKDB_NEO_FRONTEND_INCLUDE` headers, using the matching engine headers at
+`DEP_DUCKDB_NEO_FRONTEND_DUCKDB_INCLUDE`. Connection-bound frontend operations
+require an exclusive Rust borrow. Strings, callback panic containment and
+exception containment belong to the driver. This is a narrow bridge for
+capabilities not exposed by V2, rather than a general C++ AST binding.
+V1 and V2 hosts use separate symbols and share their containment implementation
+from `libduckdb-sys/native/frontend_host.cpp`.
+
 ## Feature flags
 
 ### Integrations
