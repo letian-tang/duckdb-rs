@@ -1,12 +1,17 @@
 # Minimal Neo fork
 
-Baseline: official duckdb/duckdb-rs `89e4b36` (instance builder rework #909, 2026-10-20).
-The pinned DuckDB source is unchanged. The traditional `duckdb` crate and
+Baseline: official duckdb/duckdb-rs `c4936ce` (Neo extensions #910, 2026-10-20).
+DuckDB follows upstream to `b32b1368b8db5f398b5e91fbacbf4d80f6fe7139` /
+`2.0.0-alpha49003`. The traditional `duckdb` crate and
 `libduckdb-sys` match that baseline. Prior V1 additions remain in old commits/tags.
 
 Use upstream APIs for opening instances/connections, parse/bind/prepare, query
 execution, column collection append/scan, and scalar callbacks/builders. The fork
 must not add parallel result, session, or UDF frameworks over those operations.
+
+Upstream now exposes static/loadable V2 extension entrypoints. These do not
+expose native PEG/AST integration or actual transaction flags, so they do not
+replace `native-frontend`. NimbusDB keeps using upstream scalar builders directly.
 
 Remaining additions:
 
