@@ -103,7 +103,6 @@ The remaining additions fill safe interface gaps:
   borrowed connection or live query. Borrowed factories are rejected.
 - `current_chunk()` borrows the scan's current chunk, allowing consumers to
   retain a row position without copying the chunk or invoking a raw API.
-- `DataChunkRef::get_untyped_vector_at()` exposes a read-only dynamic vector.
 - `native-frontend` exports a generic C++ PEG/AST extension host and actual
   transaction state. The C API does not expose these operations. Exceptions,
   callback panics, handle conversion and memory release stay in the driver.
