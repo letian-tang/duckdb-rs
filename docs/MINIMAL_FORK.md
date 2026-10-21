@@ -1,8 +1,8 @@
 # Minimal Neo fork
 
-Baseline: official duckdb/duckdb-rs `c4936ce` (Neo extensions #910, 2026-10-20).
-DuckDB follows upstream to `b32b1368b8db5f398b5e91fbacbf4d80f6fe7139` /
-`2.0.0-alpha49003`. The traditional `duckdb` crate and
+Baseline: official duckdb/duckdb-rs `e1b0940` (Neo #911, 2026-10-21).
+DuckDB follows upstream to `d54cbbe3df17e8e5ce68312f483b4155836112aa` /
+`2.0.0`. The traditional `duckdb` crate and
 `libduckdb-sys` match that baseline. Prior V1 additions remain in old commits/tags.
 
 Use upstream APIs for opening instances/connections, parse/bind/prepare, query
@@ -39,3 +39,9 @@ they do not require an Arrow C Data bridge or custom driver callback framework.
 The long-term destination is upstream. Remove each remaining patch when the
 same safe capability/fix is available there; do not keep aliases to preserve
 internal call shapes.
+
+#911 adds profiling/metrics, common types, macro functions, multi-file readers,
+CopyTo statistics and chunk capacity. These do not replace the three remaining
+patch classes above. DuckDB is a formal 2.0.0 release; Neo still labels its API
+experimental. Validation: 291 unit, 24 integration and 50 documentation tests
+passed (3 ignored); native-frontend/static extension features enabled.
