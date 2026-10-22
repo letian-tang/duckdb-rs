@@ -57,15 +57,22 @@ Release validation: 347 unit, 24 integration, 67 documentation tests passed
 NimbusDB is moving back to the traditional duckdb crate while retaining the
 DuckDB 2.0.0 release kernel. The V1 additions are limited to missing safe APIs:
 
-- native-frontend: static C++ frontend contract, true transaction flags and
-  marking error-returning scalar callbacks fallible (not exposed by V1).
+- native-frontend: static C++ frontend contract and true transaction flags.
 - prepare_single and fallible parameter/result metadata: reject multi-statement
   preparation before side effects and inspect the real prepared statement.
 - Statement::take_owned_result: detach a completed materialized V1 result,
   retaining only its database owner; ordinary row conversion is reused.
 - Arrow scalar volatility forwarding and zero-argument row count preservation;
-  NullArray decoding and native interval formatting.
+  explicit special NULL handling, NullArray decoding and native interval formatting.
+  DuckDB 2.0 V1 function-set registration already marks callbacks fallible, so
+  there is no extra C++ SetFallible patch.
 
 The V1 implementation does not call C API V2 or require duckdb-neo. The engine
 submodule and libduckdb-sys build code are unchanged. Existing Neo sources in
 this upstream workspace are not removed or used by the V1 application.
+
+V1 regression: 493 library tests pass with
+`native-frontend,vscalar,vscalar-arrow,chrono,rust_decimal`.
+The upstream `types::chrono::test::test_duckdb_datetime_functions` requires the
+optional ICU extension for CURRENT_DATE on DuckDB 2.0 and was filtered for this
+non-ICU build; it is not counted as a pass. NimbusDB's 616 library tests pass.

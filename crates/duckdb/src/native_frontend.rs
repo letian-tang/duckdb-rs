@@ -38,14 +38,6 @@ unsafe extern "C" {
         context: *mut c_void,
     ) -> *mut c_char;
     fn duckdb_rs_frontend_free(value: *mut c_char);
-    #[cfg(feature = "vscalar")]
-    fn duckdb_rs_scalar_set_fallible(function: ffi::duckdb_scalar_function) -> *mut c_char;
-}
-
-#[cfg(feature = "vscalar")]
-pub(crate) fn mark_scalar_fallible(function: ffi::duckdb_scalar_function) -> Result<()> {
-    take_result(unsafe { duckdb_rs_scalar_set_fallible(function) })?;
-    Ok(())
 }
 
 fn error(message: impl Into<String>) -> Error {

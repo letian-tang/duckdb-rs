@@ -1,6 +1,5 @@
 #include "duckdb.hpp"
 #include "duckdb.h"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb_rs/native_frontend.hpp"
 #include "duckdb/transaction/transaction_context.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
@@ -98,14 +97,4 @@ extern "C" unsigned char duckdb_rs_transaction_state(NativeConnectionHandle hand
         if (duckdb::ValidChecker::IsInvalidated(transaction.ActiveTransaction())) state |= 4;
     }
     return state;
-}
-
-// C API V1 does not expose fallibility. Error-returning Rust callbacks must be
-// marked before registration so optimizer rewrites preserve their errors.
-extern "C" char *duckdb_rs_scalar_set_fallible(duckdb_scalar_function function) noexcept {
-    return Guard([&]() -> std::string {
-        if (!function) throw duckdb::InvalidInputException("missing scalar function");
-        reinterpret_cast<duckdb::ScalarFunction *>(function)->SetFallible();
-        return "OK";
-    });
 }

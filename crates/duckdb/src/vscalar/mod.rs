@@ -99,6 +99,12 @@ pub trait VScalar: Sized {
     ///
     /// # Default
     /// Returns `false` by default, meaning the function is not volatile.
+    /// Whether the callback handles SQL NULL itself. Defaults to engine NULL propagation.
+    fn special_null_handling() -> bool {
+        false
+    }
+
+    /// Whether this function must be evaluated separately for every row.
     fn volatile() -> bool {
         false
     }
@@ -201,6 +207,9 @@ impl Connection {
             let scalar_function = ScalarFunction::new(name)?;
             signature.register_with_scalar(&scalar_function);
             scalar_function.set_function(Some(scalar_func::<S>));
+            if S::special_null_handling() {
+                scalar_function.set_special_handling();
+            }
             if S::volatile() {
                 scalar_function.set_volatile();
             }
@@ -223,6 +232,9 @@ impl Connection {
             let scalar_function = ScalarFunction::new(name)?;
             signature.register_with_scalar(&scalar_function);
             scalar_function.set_function(Some(scalar_func::<S>));
+            if S::special_null_handling() {
+                scalar_function.set_special_handling();
+            }
             if S::volatile() {
                 scalar_function.set_volatile();
             }

@@ -96,6 +96,12 @@ pub trait VArrowScalar: Sized {
     ///
     /// # Default
     /// Returns `false` by default, meaning the function is not volatile.
+    /// Whether the callback handles SQL NULL itself, including NULL-to-value algorithms.
+    fn special_null_handling() -> bool {
+        false
+    }
+
+    /// Whether this function must be evaluated separately for every row.
     fn volatile() -> bool {
         false
     }
@@ -126,6 +132,10 @@ where
             .collect()
     }
 
+    fn special_null_handling() -> bool {
+        <T as VArrowScalar>::special_null_handling()
+    }
+
     fn volatile() -> bool {
         <T as VArrowScalar>::volatile()
     }
@@ -151,6 +161,36 @@ mod volatility_tests {
         fn volatile() -> bool {
             true
         }
+    }
+
+    struct ZeroCounter;
+    impl VArrowScalar for ZeroCounter {
+        type State = Arc<AtomicI64>;
+        fn invoke(counter: &Self::State, input: RecordBatch) -> Result<Arc<dyn Array>, Box<dyn std::error::Error>> {
+            Ok(Arc::new(Int64Array::from_iter_values(
+                (0..input.num_rows()).map(|_| counter.fetch_add(1, Ordering::SeqCst) + 1),
+            )))
+        }
+        fn signatures() -> Vec<ArrowFunctionSignature> {
+            vec![ArrowFunctionSignature::exact(vec![], DataType::Int64)]
+        }
+        fn volatile() -> bool {
+            true
+        }
+    }
+    #[test]
+    fn zero_argument_arrow_scalar_preserves_all_batch_rows() -> crate::Result<()> {
+        let connection = crate::Connection::open_in_memory()?;
+        let counter = Arc::new(AtomicI64::new(0));
+        connection.register_scalar_function_with_state::<ZeroCounter>("zero_counter", &counter)?;
+        let mut statement = connection.prepare_single("SELECT zero_counter() FROM range(5000)")?;
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+        let values = statement
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<crate::Result<Vec<_>>>()?;
+        assert_eq!(values, (1_i64..=5000).collect::<Vec<_>>());
+        assert_eq!(counter.load(Ordering::SeqCst), 5000);
+        Ok(())
     }
 
     #[test]

@@ -478,6 +478,11 @@ pub fn format_interval(months: i32, days: i32, nanos: i64) -> String {
         let output = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
         crate::ffi::duckdb_free(text.cast());
         crate::ffi::duckdb_destroy_value(&mut value);
+        // The V1 API returns a SQL literal rather than display text.
         output
+            .strip_prefix("'")
+            .and_then(|text| text.strip_suffix("'::INTERVAL"))
+            .unwrap_or(&output)
+            .to_owned()
     }
 }

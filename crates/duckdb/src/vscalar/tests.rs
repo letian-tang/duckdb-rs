@@ -315,10 +315,6 @@ fn test_scalar() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-frontend"),
-    ignore = "the v1 C API needs the native-frontend SetFallible bridge for recoverable scalar errors"
-)]
 fn test_scalar_error() -> Result<(), Box<dyn Error>> {
     let conn = Connection::open_in_memory()?;
     conn.register_scalar_function::<ErrorScalar>("error_udf")?;
@@ -334,10 +330,6 @@ fn test_scalar_error() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-frontend"),
-    ignore = "the v1 C API needs the native-frontend SetFallible bridge for recoverable scalar errors"
-)]
 fn scalar_panics_and_display_failures_become_query_errors() -> Result<(), Box<dyn Error>> {
     let conn = Connection::open_in_memory()?;
     conn.register_scalar_function::<PanickingScalar>("panicking_scalar")?;
@@ -359,10 +351,6 @@ fn scalar_panics_and_display_failures_become_query_errors() -> Result<(), Box<dy
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-frontend"),
-    ignore = "the v1 C API needs the native-frontend SetFallible bridge for recoverable scalar errors"
-)]
 fn scalar_panics_after_output_and_the_registered_function_remains_usable() -> Result<(), Box<dyn Error>> {
     let conn = Connection::open_in_memory()?;
     conn.register_scalar_function::<LatePanickingScalar>("late_panicking_scalar")?;
@@ -380,10 +368,6 @@ fn scalar_panics_after_output_and_the_registered_function_remains_usable() -> Re
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-frontend"),
-    ignore = "the v1 C API needs the native-frontend SetFallible bridge for recoverable scalar errors"
-)]
 fn scalar_errors_escape_interior_nuls_through_registered_callback() -> Result<(), Box<dyn Error>> {
     let conn = Connection::open_in_memory()?;
     conn.register_scalar_function::<NulErrorScalar>("nul_error_scalar")?;
@@ -396,10 +380,6 @@ fn scalar_errors_escape_interior_nuls_through_registered_callback() -> Result<()
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-frontend"),
-    ignore = "the v1 C API needs the native-frontend SetFallible bridge for recoverable scalar errors"
-)]
 fn scalar_hazardous_panic_payloads_are_contained() -> Result<(), Box<dyn Error>> {
     HAZARDOUS_PANIC_PAYLOADS.store(0, Ordering::SeqCst);
     HAZARDOUS_PANIC_PAYLOAD_DROPS.store(0, Ordering::SeqCst);
@@ -421,10 +401,6 @@ fn scalar_hazardous_panic_payloads_are_contained() -> Result<(), Box<dyn Error>>
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-frontend"),
-    ignore = "the v1 C API needs the native-frontend SetFallible bridge for recoverable scalar errors"
-)]
 fn scalar_errors_survive_panicking_state_destructors() -> Result<(), Box<dyn Error>> {
     SCALAR_STATE_DROPS.store(0, Ordering::SeqCst);
     {
