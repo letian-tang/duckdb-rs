@@ -163,6 +163,9 @@ fn scalar_vector_rows_to_arrow_array(
         LogicalTypeId::TimestampTZ => Ok(Arc::new(
             native_rows::<TimestampMicrosecondType>(vector, rows).with_timezone("UTC"),
         )),
+        LogicalTypeId::TimestampTZNs => Ok(Arc::new(
+            native_rows::<TimestampNanosecondType>(vector, rows).with_timezone("UTC"),
+        )),
         LogicalTypeId::Varchar => {
             let values = rows
                 .iter()

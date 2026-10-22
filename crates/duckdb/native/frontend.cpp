@@ -98,3 +98,20 @@ extern "C" unsigned char duckdb_rs_transaction_state(NativeConnectionHandle hand
     }
     return state;
 }
+
+// V1 has no scalar-value accessor for a vector. Keep native display semantics
+// for nested/extension values rather than serializing Arrow's Rust Debug form.
+struct NativeValueText { char *value; size_t length; int status; };
+extern "C" NativeValueText duckdb_rs_chunk_value_text(duckdb_data_chunk handle, size_t column, size_t row) noexcept {
+    try {
+        if (!handle) throw duckdb::InvalidInputException("missing data chunk");
+        auto &chunk = *reinterpret_cast<duckdb::DataChunk *>(handle);
+        if (column >= chunk.ColumnCount() || row >= chunk.size()) throw duckdb::InvalidInputException("value index out of range");
+        auto value = chunk.GetValue(column, row).ToString();
+        return {Copy(value), value.size(), 0};
+    } catch (const std::exception &error) {
+        try { std::string text = error.what(); return {Copy(text), text.size(), 1}; } catch (...) { return {nullptr, 0, 1}; }
+    } catch (...) {
+        try { std::string text = "native value formatting failed"; return {Copy(text), text.size(), 1}; } catch (...) { return {nullptr, 0, 1}; }
+    }
+}

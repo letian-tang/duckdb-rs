@@ -15,7 +15,15 @@ struct RewriteReply {
     status: std::ffi::c_int,
 }
 
+#[repr(C)]
+struct NativeValueText {
+    value: *mut c_char,
+    length: usize,
+    status: std::ffi::c_int,
+}
+
 unsafe extern "C" {
+    fn duckdb_rs_chunk_value_text(chunk: ffi::duckdb_data_chunk, column: usize, row: usize) -> NativeValueText;
     pub(crate) fn duckdb_rs_transaction_state(connection: ffi::duckdb_connection) -> u8;
     fn duckdb_rs_frontend_initialize(name: *const c_char, connection: ffi::duckdb_connection) -> *mut c_char;
     fn duckdb_rs_frontend_parse(
@@ -38,6 +46,21 @@ unsafe extern "C" {
         context: *mut c_void,
     ) -> *mut c_char;
     fn duckdb_rs_frontend_free(value: *mut c_char);
+}
+
+// Caller owns and bounds-checks this retained chunk for the duration of the call.
+pub(crate) unsafe fn chunk_value_text(chunk: ffi::duckdb_data_chunk, column: usize, row: usize) -> Result<String> {
+    let reply = unsafe { duckdb_rs_chunk_value_text(chunk, column, row) };
+    if reply.value.is_null() {
+        return Err(error("native value formatting returned no result"));
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(reply.value.cast::<u8>(), reply.length) }.to_vec();
+    unsafe { duckdb_rs_frontend_free(reply.value) };
+    let text = String::from_utf8(bytes).map_err(|e| error(e.to_string()))?;
+    if reply.status != 0 {
+        return Err(error(text));
+    }
+    Ok(text)
 }
 
 fn error(message: impl Into<String>) -> Error {

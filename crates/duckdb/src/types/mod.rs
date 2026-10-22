@@ -464,25 +464,3 @@ mod test {
         Ok(())
     }
 }
-
-/// Format an interval with DuckDB's native SQL display rules.
-/// `nanos` uses the Arrow interval carrier; DuckDB intervals have microsecond precision.
-pub fn format_interval(months: i32, days: i32, nanos: i64) -> String {
-    unsafe {
-        let mut value = crate::ffi::duckdb_create_interval(crate::ffi::duckdb_interval {
-            months,
-            days,
-            micros: nanos / 1000,
-        });
-        let text = crate::ffi::duckdb_value_to_string(value);
-        let output = std::ffi::CStr::from_ptr(text).to_string_lossy().into_owned();
-        crate::ffi::duckdb_free(text.cast());
-        crate::ffi::duckdb_destroy_value(&mut value);
-        // The V1 API returns a SQL literal rather than display text.
-        output
-            .strip_prefix("'")
-            .and_then(|text| text.strip_suffix("'::INTERVAL"))
-            .unwrap_or(&output)
-            .to_owned()
-    }
-}

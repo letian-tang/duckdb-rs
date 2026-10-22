@@ -63,7 +63,7 @@ DuckDB 2.0.0 release kernel. The V1 additions are limited to missing safe APIs:
 - Statement::take_owned_result: detach a completed materialized V1 result,
   retaining only its database owner; ordinary row conversion is reused.
 - Arrow scalar volatility forwarding and zero-argument row count preservation;
-  explicit special NULL handling, NullArray decoding and native interval formatting.
+  explicit special NULL handling, NullArray decoding and native value text.
   DuckDB 2.0 V1 function-set registration already marks callbacks fallible, so
   there is no extra C++ SetFallible patch.
 
@@ -76,3 +76,13 @@ V1 regression: 493 library tests pass with
 The upstream `types::chrono::test::test_duckdb_datetime_functions` requires the
 optional ICU extension for CURRENT_DATE on DuckDB 2.0 and was filtered for this
 non-ICU build; it is not counted as a pass. NimbusDB's 616 library tests pass.
+
+V1 follow-up validation preserves TIME_NS/TIMESTAMPTZ_NS values and metadata.
+Completed results retain their current chunk alongside its Arrow view so
+`OwnedRow::value_text` can use DuckDB's native Value display for complex types.
+V1 does not expose scalar-value extraction from a vector, so this requires a
+small C++ accessor; it is bounded to the current chunk, owns byte lengths
+(including NULs), contains exceptions and does not retain or execute a query.
+Full V1 library regression: 495 passed, 1 upstream ICU-dependent test filtered.
+NimbusDB library regression: 617 passed, including native complex text and TCP
+nanosecond temporal queries. The previous tag is retained unchanged.

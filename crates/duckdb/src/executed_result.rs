@@ -45,6 +45,20 @@ pub(crate) struct ExecutedResult {
 // Arrow options handles; concurrent access is not promised.
 unsafe impl Send for ExecutedResult {}
 
+#[cfg(feature = "native-frontend")]
+pub(crate) struct RetainedDataChunk(pub(crate) ffi::duckdb_data_chunk);
+#[cfg(feature = "native-frontend")]
+impl Drop for RetainedDataChunk {
+    fn drop(&mut self) {
+        unsafe { ffi::duckdb_destroy_data_chunk(&mut self.0) };
+    }
+}
+// SAFETY: only completed, independently owned result chunks use this private
+// wrapper. OwnedRows retains their database, is !Sync, and never exposes a
+// writable vector. Moving it transfers the only native access path.
+#[cfg(feature = "native-frontend")]
+unsafe impl Send for RetainedDataChunk {}
+
 #[derive(Debug)]
 struct ResultColumn {
     name: CString,
@@ -93,6 +107,26 @@ impl ExecutedResult {
                 return Ok(None);
             };
             self.data_chunk_to_struct_array(chunk).map(Some)
+        }
+    }
+
+    #[cfg(feature = "native-frontend")]
+    pub(crate) fn step_retained(&self) -> Result<Option<(StructArray, RetainedDataChunk)>> {
+        unsafe {
+            let Some(chunk) = self.next_chunk()? else {
+                return Ok(None);
+            };
+            let chunk = RetainedDataChunk(chunk);
+            let mut arrays = FFI_ArrowArray::empty();
+            let error = ffi::duckdb_data_chunk_to_arrow(
+                self.arrow_options.as_ptr(),
+                chunk.0,
+                &mut arrays as *mut _ as *mut ffi::ArrowArray,
+            );
+            result_from_duckdb_error_data(error)?;
+            let data = from_ffi(arrays, &self.arrow_schema)
+                .map_err(|e| arrow_conversion_failure("Could not import DuckDB Arrow array", e))?;
+            Ok(Some((StructArray::from(data), chunk)))
         }
     }
 

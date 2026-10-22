@@ -537,6 +537,10 @@ impl<'stmt> Row<'stmt> {
                 let array = column.as_any().downcast_ref::<array::Time64MicrosecondArray>().unwrap();
                 ValueRef::Time64(types::TimeUnit::Microsecond, array.value(row))
             }
+            DataType::Time64(TimeUnit::Nanosecond) => {
+                let array = column.as_any().downcast_ref::<array::Time64NanosecondArray>().unwrap();
+                ValueRef::Time64(types::TimeUnit::Nanosecond, array.value(row))
+            }
             DataType::Interval(unit) => match unit {
                 IntervalUnit::MonthDayNano => {
                     let array = column

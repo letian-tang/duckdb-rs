@@ -2,6 +2,12 @@ use crate::{Error, Result, Row, core::LogicalTypeHandle, executed_result::Execut
 use arrow::array::{Array, StructArray};
 use std::sync::{Arc, Mutex};
 
+struct OwnedChunk {
+    arrow: StructArray,
+    #[cfg(feature = "native-frontend")]
+    native: crate::executed_result::RetainedDataChunk,
+}
+
 /// A completed materialized V1 result independent of the original statement and
 /// connection. Holds the database owner, not a live query. Send, not Sync.
 /// This does not impose a memory bound on DuckDB result materialization.
@@ -12,7 +18,7 @@ use std::sync::{Arc, Mutex};
 /// ```
 pub struct OwnedRows {
     // Drop Arrow chunk and native result before closing their database.
-    chunk: Option<StructArray>,
+    chunk: Option<OwnedChunk>,
     result: ExecutedResult,
     _database: Arc<Mutex<crate::inner_connection::DatabaseHandle>>,
     position: usize,
@@ -64,21 +70,36 @@ impl OwnedRows {
 
     /// Read the next row. Native fetch and Arrow conversion errors are returned.
     /// After an error or exhaustion, subsequent calls return `Ok(None)`.
-    /// Metadata and the dedicated connection remain owned until this object is dropped.
+    /// Metadata and database ownership remain live until this object is dropped.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<OwnedRow<'_>>> {
-        self.next_with(ExecutedResult::step)
+        #[cfg(feature = "native-frontend")]
+        {
+            self.next_with(|result| {
+                result
+                    .step_retained()
+                    .map(|chunk| chunk.map(|(arrow, native)| OwnedChunk { arrow, native }))
+            })
+        }
+        #[cfg(not(feature = "native-frontend"))]
+        {
+            self.next_with(|result| result.step().map(|chunk| chunk.map(|arrow| OwnedChunk { arrow })))
+        }
     }
 
     // 可注入读取错误以验证状态收敛，不需要构造无效的原生指针。
     fn next_with(
         &mut self,
-        mut fetch: impl FnMut(&ExecutedResult) -> Result<Option<StructArray>>,
+        mut fetch: impl FnMut(&ExecutedResult) -> Result<Option<OwnedChunk>>,
     ) -> Result<Option<OwnedRow<'_>>> {
         if self.exhausted {
             return Ok(None);
         }
-        while self.chunk.as_ref().is_none_or(|chunk| self.position >= chunk.len()) {
+        while self
+            .chunk
+            .as_ref()
+            .is_none_or(|chunk| self.position >= chunk.arrow.len())
+        {
             // Invalidate the previous chunk even when fetching fails.
             self.chunk = None;
             self.position = 0;
@@ -101,6 +122,26 @@ impl OwnedRows {
 }
 
 impl OwnedRow<'_> {
+    /// Whether this cell is SQL NULL, without decoding its physical carrier.
+    pub fn is_null(&self, index: usize) -> Result<bool> {
+        if index >= self.rows.column_count() {
+            return Err(Error::InvalidColumnIndex(index));
+        }
+        let chunk = &self.rows.chunk.as_ref().ok_or(Error::InvalidQuery)?.arrow;
+        let column = chunk.column(index);
+        Ok(matches!(column.data_type(), arrow::datatypes::DataType::Null) || column.is_null(self.position))
+    }
+    /// DuckDB's own display text for this value, preserving embedded NUL bytes.
+    /// Uses the retained completed chunk; it never executes a query.
+    #[cfg(feature = "native-frontend")]
+    pub fn value_text(&self, index: usize) -> Result<String> {
+        if index >= self.rows.column_count() {
+            return Err(Error::InvalidColumnIndex(index));
+        }
+        let chunk = &self.rows.chunk.as_ref().ok_or(Error::InvalidQuery)?.native;
+        unsafe { crate::native_frontend::chunk_value_text(chunk.0, index, self.position) }
+    }
+
     /// Decode a cell using the ordinary driver's conversion rules.
     pub fn get<T: crate::types::FromSql>(&self, index: usize) -> Result<T> {
         let value = self.get_ref(index)?;
@@ -135,7 +176,7 @@ impl OwnedRow<'_> {
         let chunk = self.rows.chunk.as_ref().ok_or(Error::InvalidQuery)?;
         Ok(Row::value_ref_with_type(
             self.position,
-            chunk.column(index),
+            chunk.arrow.column(index),
             Some(self.rows.result.result_column_logical_id(index)),
         ))
     }
@@ -203,6 +244,45 @@ mod tests {
         assert!(matches!(row.get_ref(2)?, ValueRef::Decimal(value) if value.to_string() == "12"));
         Ok(())
     }
+    #[test]
+    fn nanosecond_temporal_results_preserve_values_and_logical_types() -> Result<()> {
+        let mut rows = query(
+            &Connection::open_in_memory()?,
+            "SELECT TIME_NS '12:34:56.123456789', TIMESTAMPTZ_NS '2026-10-22 12:34:56.123456789+00'",
+        )?;
+        assert_eq!(rows.column_logical_type(0)?.id(), crate::core::LogicalTypeId::TimeNs);
+        assert_eq!(
+            rows.column_logical_type(1)?.id(),
+            crate::core::LogicalTypeId::TimestampTZNs
+        );
+        let row = rows.next()?.unwrap();
+        assert_eq!(
+            row.get_ref(0)?,
+            ValueRef::Time64(crate::types::TimeUnit::Nanosecond, 45_296_123_456_789)
+        );
+        assert!(
+            matches!(row.get_ref(1)?, ValueRef::Timestamp(crate::types::TimeUnit::Nanosecond, value) if value % 1_000_000_000 == 123_456_789)
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "native-frontend")]
+    fn native_display_keeps_nested_values_and_embedded_nuls() -> Result<()> {
+        let mut rows = query(
+            &Connection::open_in_memory()?,
+            "SELECT [1, NULL, 3], {'a': 1, 'b': '中'}, ['a' || chr(0) || 'b'], INTERVAL '2 months 3 days', NULL::INTEGER[]",
+        )?;
+        let row = rows.next()?.unwrap();
+        assert_eq!(row.value_text(0)?, "[1, NULL, 3]");
+        assert_eq!(row.value_text(1)?, "{'a': 1, 'b': 中}");
+        assert!(row.value_text(2)?.contains('\0'));
+        assert_eq!(row.value_text(3)?, "2 months 3 days");
+        assert!(row.is_null(4)?);
+        assert!(row.value_text(5).is_err());
+        Ok(())
+    }
+
     #[test]
     fn fetch_error_invalidates_current_row_and_exhausts() -> Result<()> {
         let connection = Connection::open_in_memory()?;
