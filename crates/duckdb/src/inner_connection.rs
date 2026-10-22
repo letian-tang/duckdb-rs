@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct DatabaseHandle {
+pub(crate) struct DatabaseHandle {
     db: ffi::duckdb_database,
     close_on_drop: bool,
 }
@@ -124,6 +124,10 @@ impl InnerConnection {
     }
 
     /// Creates a new connection to the already-opened database.
+    pub(crate) fn database_owner(&self) -> Arc<Mutex<DatabaseHandle>> {
+        Arc::clone(&self.database)
+    }
+
     pub fn try_clone(&self) -> Result<Self> {
         unsafe { Self::new(self.database.clone()) }
     }
@@ -140,6 +144,14 @@ impl InnerConnection {
     }
 
     pub fn prepare<'a>(&mut self, conn: &'a Connection, sql: &str) -> Result<Statement<'a>> {
+        self.prepare_internal(conn, sql, false)
+    }
+
+    pub fn prepare_single<'a>(&mut self, conn: &'a Connection, sql: &str) -> Result<Statement<'a>> {
+        self.prepare_internal(conn, sql, true)
+    }
+
+    fn prepare_internal<'a>(&mut self, conn: &'a Connection, sql: &str, single: bool) -> Result<Statement<'a>> {
         let c_str = CString::new(sql)?;
 
         // Extract statements (handles both single and multi-statement queries)
@@ -150,6 +162,9 @@ impl InnerConnection {
 
         // Auto-cleanup on drop
         let _guard = ExtractedStatementsGuard(extracted);
+        if single && num_stmts != 1 {
+            return Err(Error::MultipleStatement);
+        }
 
         // Execute all intermediate statements
         for i in 0..num_stmts - 1 {
@@ -262,7 +277,14 @@ impl InnerConnection {
 
     #[inline]
     pub fn is_autocommit(&self) -> bool {
-        true
+        #[cfg(feature = "native-frontend")]
+        {
+            unsafe { crate::native_frontend::duckdb_rs_transaction_state(self.con) & 1 != 0 }
+        }
+        #[cfg(not(feature = "native-frontend"))]
+        {
+            true
+        }
     }
 }
 

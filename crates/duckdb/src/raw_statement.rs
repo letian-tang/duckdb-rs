@@ -54,6 +54,14 @@ impl RawStatement {
         self.ptr.is_null()
     }
 
+    pub(crate) fn parameter_logical_type(&self, index: usize) -> Result<Option<LogicalTypeHandle>> {
+        if index == 0 || index > self.bind_parameter_count() {
+            return Err(Error::InvalidParameterIndex(index));
+        }
+        let pointer = unsafe { ffi::duckdb_param_logical_type(self.ptr, index as u64) };
+        Ok((!pointer.is_null()).then(|| unsafe { LogicalTypeHandle::new(pointer) }))
+    }
+
     #[inline]
     pub unsafe fn ptr(&self) -> ffi::duckdb_prepared_statement {
         self.ptr
@@ -75,6 +83,10 @@ impl RawStatement {
     }
 
     #[inline]
+    pub(crate) fn is_changed_rows(&self) -> bool {
+        self.result.as_ref().is_some_and(ExecutedResult::is_changed_rows)
+    }
+
     pub fn row_count(&self) -> usize {
         self.executed().row_count()
     }
@@ -142,6 +154,11 @@ impl RawStatement {
     #[inline]
     fn executed(&self) -> &ExecutedResult {
         self.result.as_ref().expect("The statement was not executed yet")
+    }
+
+    /// Transfer the executed result without tying its lifetime to this statement.
+    pub(crate) fn take_result(&mut self) -> Option<ExecutedResult> {
+        self.result.take()
     }
 
     #[inline]

@@ -51,3 +51,21 @@ collection scans. Keep the alignment fix in the new typed reader/writer paths.
 Neo is separately versioned as 0.20000.0; duckdb/sys/macros are 1.20000.0.
 Release validation: 347 unit, 24 integration, 67 documentation tests passed
 (3 ignored), plus loadable-extension compilation. The three patch classes remain.
+
+## Stable C API V1 integration (2026-10-22)
+
+NimbusDB is moving back to the traditional duckdb crate while retaining the
+DuckDB 2.0.0 release kernel. The V1 additions are limited to missing safe APIs:
+
+- native-frontend: static C++ frontend contract, true transaction flags and
+  marking error-returning scalar callbacks fallible (not exposed by V1).
+- prepare_single and fallible parameter/result metadata: reject multi-statement
+  preparation before side effects and inspect the real prepared statement.
+- Statement::take_owned_result: detach a completed materialized V1 result,
+  retaining only its database owner; ordinary row conversion is reused.
+- Arrow scalar volatility forwarding and zero-argument row count preservation;
+  NullArray decoding and native interval formatting.
+
+The V1 implementation does not call C API V2 or require duckdb-neo. The engine
+submodule and libduckdb-sys build code are unchanged. Existing Neo sources in
+this upstream workspace are not removed or used by the V1 application.

@@ -820,6 +820,7 @@ version = "1.20000.0"
 dependencies = [
  "arrow",
  "cast",
+ "cc",
  "chrono",
  "doc-comment",
  "duckdb-loadable-macros",

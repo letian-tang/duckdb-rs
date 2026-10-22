@@ -26,6 +26,14 @@ impl Column<'_> {
 }
 
 impl Statement<'_> {
+    /// Return an owned logical result type, reporting unavailable or invalid
+    /// metadata as an error rather than panicking. Does not execute the statement.
+    pub fn try_column_logical_type(&self, index: usize) -> Result<crate::core::LogicalTypeHandle> {
+        if index >= self.column_count() {
+            return Err(Error::InvalidColumnIndex(index));
+        }
+        self.stmt.try_column_logical_type(index)
+    }
     /// Get all the column names in the result set of the prepared statement.
     ///
     /// If associated DB schema can be altered concurrently, you should make

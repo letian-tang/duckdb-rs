@@ -1,5 +1,6 @@
 [package]
 name = "duckdb"
+links = "duckdb_rust_frontend"
 version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
@@ -23,6 +24,7 @@ default = ["libduckdb-sys/default"]
 bundled = ["libduckdb-sys/bundled"]
 # Warning: experimental feature
 bundled-cmake = ["bundled", "libduckdb-sys/bundled-cmake", "parquet"]
+native-frontend = ["bundled-cmake", "dep:cc", "serde_json"]
 json = ["libduckdb-sys/json", "bundled"]
 parquet = ["libduckdb-sys/parquet", "bundled"]
 autocomplete = ["libduckdb-sys/autocomplete", "bundled-cmake"]
@@ -69,6 +71,9 @@ serde_json = { workspace = true, optional = true }
 strum = { workspace = true, features = ["derive"] }
 url = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+
+[build-dependencies]
+cc = { workspace = true, optional = true }
 
 [dev-dependencies]
 doc-comment = { workspace = true }
