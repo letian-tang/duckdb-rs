@@ -69,9 +69,9 @@ fn main() -> Result<()> {
     let mut ducks = Vec::new();
     let mut result = conn.query("FROM ducks ORDER BY id", Parameters::None)?;
     while let Some(chunk) = result.next_chunk()? {
-        let ids = chunk.get_vector_at::<i32>(0)?;
-        let names = chunk.get_vector_at::<String>(1)?;
-        for (id, name) in ids.iter()?.zip(names.iter()?) {
+        let ids = chunk.get_vector_at::<i32>(0)?.reader()?;
+        let names = chunk.get_vector_at::<String>(1)?.reader()?;
+        for (id, name) in ids.iter().zip(names.iter()) {
             ducks.push(Duck {
                 id: *id.expect("id is a primary key"),
                 name: name.unwrap_or_default().to_owned(),
@@ -99,7 +99,7 @@ and batched functions. This fork does not provide `new_session`,
 The remaining additions fill safe interface gaps:
 
 - `ColumnDataCollection::new_owned()` pins an instance factory and its database.
-  An owned scan (`to_scan()?.into_owned()?`) can move between workers without a
+  An owned scan (`to_normal().to_owned_scan()?`) can move between workers without a
   borrowed connection or live query. Borrowed factories are rejected.
 - `current_chunk()` borrows the scan's current chunk, allowing consumers to
   retain a row position without copying the chunk or invoking a raw API.

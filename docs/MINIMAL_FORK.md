@@ -1,6 +1,6 @@
 # Minimal Neo fork
 
-Baseline: official duckdb/duckdb-rs `e1b0940` (Neo #911, 2026-10-21).
+Baseline: official duckdb/duckdb-rs tag `v1.20000.0` (`1b8f7cc`, 2026-10-22).
 DuckDB follows upstream to `d54cbbe3df17e8e5ce68312f483b4155836112aa` /
 `2.0.0`. The traditional `duckdb` crate and
 `libduckdb-sys` match that baseline. Prior V1 additions remain in old commits/tags.
@@ -18,8 +18,8 @@ Remaining additions:
 | Addition | Missing upstream safe interface / reason |
 | --- | --- |
 | `native-frontend` | Generic C++ PEG/AST extension and actual transaction flags are not exposed by the C API / Neo. Keeps raw handles, callbacks, panic/exception containment and release in the driver. |
-| `ColumnDataCollection::new_owned` | Upstream collections borrow their factory. Independently pin the instance factory/database for results retained across session commands and worker tasks. |
-| `OwnedColumnDataCollectionScan` | Upstream scan handles are not Send. Only a scan verified to own its instance factory can move between workers; a static borrowed factory is rejected too. |
+| `ColumnDataCollection::new_owned` | Upstream collections borrow their creator. Independently pin the instance factory/database for results retained across session commands and worker tasks. |
+| `OwnedColumnDataCollectionScan` | Upstream borrowed scans remain unchanged. `to_owned_scan` consumes independently owned storage; only that scan can move between workers. Borrowed storage is rejected even with a static borrow. |
 | `current_chunk` | Borrow the current native scan chunk for row-at-a-time protocol adaptation without copying it. Cache invalidation follows native scan advancement. |
 | 128-bit vector alignment fixes | Native storage can be aligned to 8 bytes, while Rust i128/u128 require 16. Return copied values with unaligned access, without creating invalid references. |
 
@@ -45,3 +45,9 @@ CopyTo statistics and chunk capacity. These do not replace the three remaining
 patch classes above. DuckDB is a formal 2.0.0 release; Neo still labels its API
 experimental. Validation: 291 unit, 24 integration and 50 documentation tests
 passed (3 ignored); native-frontend/static extension features enabled.
+
+The release includes #914: use upstream VectorReader/VectorWriter and borrowed
+collection scans. Keep the alignment fix in the new typed reader/writer paths.
+Neo is separately versioned as 0.20000.0; duckdb/sys/macros are 1.20000.0.
+Release validation: 347 unit, 24 integration, 67 documentation tests passed
+(3 ignored), plus loadable-extension compilation. The three patch classes remain.
