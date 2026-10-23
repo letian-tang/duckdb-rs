@@ -14,6 +14,22 @@ You can use it to:
 - Read and write Arrow, Parquet, JSON, and CSV formats natively.
 - Create DuckDB extensions in Rust with custom scalar and table functions.
 
+## Maintained fork: direct storage appender
+
+The optional `direct-appender` feature (bundled-cmake only) provides
+`Connection::direct_appender_to_db(table, schema) -> Appender<'_>`.
+It reuses the standard Rust/C API appender's logical value conversion, defaults,
+active columns, explicit flush and RAII ownership, but flushes the collected data
+through DuckDB's transaction-local `LocalAppend` instead of constructing INSERT SQL.
+It does not expose physical DECIMAL integer encoding, disable constraints or commit
+an explicit transaction. Call `flush()` and check its error before dropping it.
+The small C++ bridge is compiled against this fork's pinned engine headers; it is
+not a stable cross-version ABI and must be revalidated on engine upgrades.
+
+Regression tests: `cargo test -p duckdb --features direct-appender,rust_decimal --test direct_appender`.
+The ignored comparative benchmark in that test is manual, with no timing assertion;
+its results do not establish end-to-end replication throughput.
+
 ## Quickstart
 
 Create a new project and add the `duckdb` crate:

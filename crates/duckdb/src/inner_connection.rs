@@ -230,6 +230,24 @@ impl InnerConnection {
         Ok(Appender::new(conn, c_app))
     }
 
+    #[cfg(feature = "direct-appender")]
+    pub fn direct_appender<'a>(&mut self, conn: &'a Connection, schema: &str, table: &str) -> Result<Appender<'a>> {
+        unsafe extern "C" {
+            fn duckdb_rs_direct_appender_create(
+                connection: ffi::duckdb_connection,
+                schema: *const c_char,
+                table: *const c_char,
+                out: *mut ffi::duckdb_appender,
+            ) -> ffi::duckdb_state;
+        }
+        let mut app = ptr::null_mut();
+        let schema = CString::new(schema)?;
+        let table = CString::new(table)?;
+        let rc = unsafe { duckdb_rs_direct_appender_create(self.con, schema.as_ptr(), table.as_ptr(), &mut app) };
+        result_from_duckdb_appender(rc, &mut app)?;
+        Ok(Appender::new(conn, app))
+    }
+
     fn create_table_appender(
         &mut self,
         catalog: Option<&str>,

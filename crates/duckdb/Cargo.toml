@@ -25,6 +25,8 @@ bundled = ["libduckdb-sys/bundled"]
 # Warning: experimental feature
 bundled-cmake = ["bundled", "libduckdb-sys/bundled-cmake", "parquet"]
 native-frontend = ["bundled-cmake", "dep:cc", "serde_json"]
+# Direct transaction-local append, retaining the public Appender value semantics.
+direct-appender = ["bundled-cmake", "dep:cc"]
 json = ["libduckdb-sys/json", "bundled"]
 parquet = ["libduckdb-sys/parquet", "bundled"]
 autocomplete = ["libduckdb-sys/autocomplete", "bundled-cmake"]
