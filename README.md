@@ -449,3 +449,17 @@ Join our [Discord](https://discord.gg/tcvwpjfnZx) to chat with the community in 
 Copyright (c) Stichting DuckDB Foundation
 
 Licensed under the [MIT license](LICENSE).
+
+### Linux bundled-cmake static extension linking
+
+Keep the generated static-extension loader, extension archives and core archive
+as explicit final-link inputs on Linux (`static:-bundle`, with whole-archive only
+for the loader). Otherwise rustc can pack extensions into the rlib ahead of the
+loader, and GNU ld cannot resolve the later `duckdb_extension_*_describe` references.
+This preserves the static initializer and does not force-load all DuckDB objects.
+The Cargo build directories must remain available for final linking; standalone
+native staticlib distribution must also carry these external archives.
+
+`python3 scripts/check_static_extension_link.py` from the repository root exercises
+the Rust archive layout and initializer with a small fixture. On macOS it also
+uses rust-lld's strict ELF back-reference checks; that is not a GNU ld runtime test.

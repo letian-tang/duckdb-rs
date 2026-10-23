@@ -435,7 +435,14 @@ fn build_static_extension_loader(source_dir: &Path, out_dir: &str, extensions: &
         .compile(lib_name);
     println!("cargo:rustc-link-search=native={out_dir}");
     // Nothing references the autoregister object, so keep the linker from dropping its static initializer.
-    println!("cargo:rustc-link-lib=static:+whole-archive={lib_name}");
+    // rustc otherwise bundles ordinary archives into the rlib but emits this
+    // whole-archive loader after it. GNU ld will not revisit the bundled
+    // extensions when the loader introduces their describe symbols later.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-lib=static:+whole-archive,-bundle={lib_name}");
+    } else {
+        println!("cargo:rustc-link-lib=static:+whole-archive={lib_name}");
+    }
 }
 
 fn link_static_library(lib_dir: &Path, cmake_build_type: &str, name: &str) {
@@ -453,7 +460,13 @@ fn link_static_library(lib_dir: &Path, cmake_build_type: &str, name: &str) {
             println!("cargo:rustc-link-search=native={}", parent.display());
         }
     }
-    println!("cargo:rustc-link-lib=static={name}");
+    // Keep loader -> extensions -> core as final-link inputs on Linux.
+    // Default +bundle would move these dependencies ahead of the loader.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-lib=static:-bundle={name}");
+    } else {
+        println!("cargo:rustc-link-lib=static={name}");
+    }
 }
 
 fn static_library_filename(name: &str) -> String {
