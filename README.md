@@ -21,8 +21,11 @@ The optional `direct-appender` feature (bundled-cmake only) provides
 It reuses the standard Rust/C API appender's logical value conversion, defaults,
 active columns, explicit flush and RAII ownership, but flushes the collected data
 through DuckDB's transaction-local `LocalAppend` instead of constructing INSERT SQL.
+Construction uses one metadata snapshot; in autocommit mode the factory owns a
+short construction transaction, while a caller's explicit transaction stays intact.
+Flush validates the actual collection and target logical types, including DECIMAL scale.
 It does not expose physical DECIMAL integer encoding, disable constraints or commit
-an explicit transaction. Call `flush()` and check its error before dropping it.
+a caller's explicit transaction. Call `flush()` and check its error before dropping it.
 The small C++ bridge is compiled against this fork's pinned engine headers; it is
 not a stable cross-version ABI and must be revalidated on engine upgrades.
 

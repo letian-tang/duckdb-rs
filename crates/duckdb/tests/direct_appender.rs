@@ -281,3 +281,119 @@ fn direct_appender_resource_workload() -> Result<()> {
     println!("mode={direct} rows={rows} batch={batch}");
     Ok(())
 }
+
+#[cfg(feature = "native-frontend")]
+#[test]
+fn direct_appender_construction_preserves_transaction_ownership() -> Result<()> {
+    let c = Connection::open_in_memory()?;
+    c.execute_batch("CREATE TABLE t(i INT)")?;
+    let initial = c.transaction_state();
+    assert!(initial.autocommit && !initial.active);
+    drop(c.direct_appender_to_db("t", "main")?);
+    assert_eq!(c.transaction_state(), initial);
+    assert!(c.direct_appender_to_db("missing", "main").is_err());
+    assert_eq!(c.transaction_state(), initial);
+    // A constructor must not commit or roll back a caller's existing writes.
+    c.execute_batch("BEGIN; INSERT INTO t VALUES(7)")?;
+    let caller = c.transaction_state();
+    drop(c.direct_appender_to_db("t", "main")?);
+    assert_eq!(c.transaction_state(), caller);
+    assert!(c.direct_appender_to_db("missing", "main").is_err());
+    assert_eq!(c.transaction_state(), caller);
+    assert_eq!(c.query_row("SELECT sum(i) FROM t", [], |r| r.get::<_, i64>(0))?, 7);
+    c.execute_batch("ROLLBACK")?;
+    assert_eq!(c.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0))?, 0);
+    assert_eq!(c.transaction_state(), initial);
+    Ok(())
+}
+
+#[test]
+fn direct_appender_concurrent_decimal_alter_never_changes_successful_values() -> Result<()> {
+    use std::sync::{
+        Arc, Barrier,
+        atomic::{AtomicBool, Ordering},
+    };
+    let c = Connection::open_in_memory()?;
+    c.execute_batch("CREATE TABLE t(i BIGINT,n DECIMAL(18,2))")?;
+    let ddl = c.try_clone()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let barrier = Arc::new(Barrier::new(2));
+    let worker_stop = Arc::clone(&stop);
+    let worker_barrier = Arc::clone(&barrier);
+    let worker = std::thread::spawn(move || {
+        worker_barrier.wait();
+        let mut alters = 0;
+        while !worker_stop.load(Ordering::Acquire) {
+            for scale in [3, 2] {
+                if ddl
+                    .execute_batch(&format!("ALTER TABLE t ALTER n TYPE DECIMAL(18,{scale})"))
+                    .is_ok()
+                {
+                    alters += 1;
+                }
+            }
+        }
+        alters
+    });
+    barrier.wait();
+    let mut successful = 0;
+    for i in 0..3000_i64 {
+        let result = (|| -> Result<()> {
+            let mut a = c.direct_appender_to_db("t", "main")?;
+            a.append_row([i, 1])?;
+            a.flush()
+        })();
+        if result.is_ok() {
+            successful += 1;
+        }
+    }
+    stop.store(true, Ordering::Release);
+    let alters = worker.join().unwrap();
+    let wrong: i64 = c.query_row("SELECT count(*) FROM t WHERE n<>1", [], |r| r.get(0))?;
+    assert!(alters > 0, "the DDL worker must have modified the schema");
+    assert!(successful > 0, "at least one concurrent append should succeed");
+    assert_eq!(wrong, 0, "successful={successful}, alters={alters}");
+    Ok(())
+}
+
+#[test]
+fn direct_appender_concurrent_drop_returns_normal_errors_and_recovers() -> Result<()> {
+    use std::sync::{
+        Arc, Barrier,
+        atomic::{AtomicBool, Ordering},
+    };
+    let c = Connection::open_in_memory()?;
+    c.execute_batch("CREATE TABLE t(i BIGINT)")?;
+    let ddl = c.try_clone()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let barrier = Arc::new(Barrier::new(2));
+    let worker_stop = Arc::clone(&stop);
+    let worker_barrier = Arc::clone(&barrier);
+    let worker = std::thread::spawn(move || {
+        worker_barrier.wait();
+        while !worker_stop.load(Ordering::Acquire) {
+            let _ = ddl.execute_batch("DROP TABLE IF EXISTS t");
+            let _ = ddl.execute_batch("CREATE TABLE IF NOT EXISTS t(i BIGINT)");
+        }
+    });
+    barrier.wait();
+    let mut internal_error = None;
+    for i in 0..1500_i64 {
+        let result = (|| -> Result<()> {
+            let mut a = c.direct_appender_to_db("t", "main")?;
+            a.append_row([i])?;
+            a.flush()
+        })();
+        if let Err(error) = result {
+            let message = error.to_string();
+            if message.to_ascii_lowercase().contains("internal") {
+                internal_error = Some(message);
+            }
+        }
+    }
+    stop.store(true, Ordering::Release);
+    worker.join().unwrap();
+    assert!(internal_error.is_none(), "{internal_error:?}");
+    assert_eq!(c.query_row("SELECT 1", [], |r| r.get::<_, i32>(0))?, 1);
+    Ok(())
+}
