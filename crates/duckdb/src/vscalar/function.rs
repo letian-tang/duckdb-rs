@@ -119,6 +119,14 @@ impl ScalarFunction {
         self
     }
 
+    /// Allow the callback to receive SQL NULL and implement its own NULL policy.
+    pub fn set_special_handling(&self) -> &Self {
+        unsafe {
+            crate::ffi::duckdb_scalar_function_set_special_handling(self.ptr);
+        }
+        self
+    }
+
     /// Marks the scalar function as volatile.
     ///
     /// Volatile functions are re-evaluated for each row, even if they have no parameters.

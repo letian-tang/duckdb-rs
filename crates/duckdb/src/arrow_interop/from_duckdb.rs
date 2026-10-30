@@ -163,6 +163,9 @@ fn scalar_vector_rows_to_arrow_array(
         LogicalTypeId::TimestampTZ => Ok(Arc::new(
             native_rows::<TimestampMicrosecondType>(vector, rows).with_timezone("UTC"),
         )),
+        LogicalTypeId::TimestampTZNs => Ok(Arc::new(
+            native_rows::<TimestampNanosecondType>(vector, rows).with_timezone("UTC"),
+        )),
         LogicalTypeId::Varchar => {
             let values = rows
                 .iter()
@@ -465,7 +468,18 @@ pub fn data_chunk_to_arrow(chunk: &DataChunkHandle) -> Result<RecordBatch, Box<d
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(RecordBatch::try_from_iter(columns)?)
+    if columns.is_empty() {
+        // A zero-argument scalar still runs once for every input row. Arrow
+        // cannot infer the row count from an empty column list.
+        let options = arrow::record_batch::RecordBatchOptions::new().with_row_count(Some(len));
+        Ok(RecordBatch::try_new_with_options(
+            Arc::new(Schema::empty()),
+            vec![],
+            &options,
+        )?)
+    } else {
+        Ok(RecordBatch::try_from_iter(columns)?)
+    }
 }
 
 #[cfg(test)]

@@ -80,6 +80,7 @@ pub use crate::{
     error::Error,
     ffi::ErrorCode,
     inner_connection::InterruptHandle,
+    owned_rows::{OwnedRow, OwnedRows},
     params::{Params, ParamsFromIter, params_from_iter},
     progress::{ProgressHandle, QueryProgress},
     row::{AndThenRows, Map, MappedRows, Row, RowIndex, Rows},
@@ -100,6 +101,10 @@ pub use polars;
 /// The core module contains the main functionality of the DuckDB crate.
 pub mod core;
 
+/// Safe host for statically linked C++ SQL frontend extensions.
+#[cfg(feature = "native-frontend")]
+pub mod native_frontend;
+
 #[macro_use]
 mod error;
 mod appender;
@@ -114,6 +119,7 @@ mod column;
 mod config;
 mod executed_result;
 mod inner_connection;
+mod owned_rows;
 mod params;
 
 #[cfg(feature = "polars")]
@@ -562,6 +568,12 @@ impl Connection {
         self.db.borrow_mut().prepare(self, sql)
     }
 
+    /// Prepare exactly one statement without executing any statement. Unlike
+    /// [`Self::prepare`], multi-statement input is rejected before execution.
+    pub fn prepare_single(&self, sql: &str) -> Result<Statement<'_>> {
+        self.db.borrow_mut().prepare_single(self, sql)
+    }
+
     /// Create an Appender for fast import data
     /// default to use `DatabaseName::Main`
     ///
@@ -601,6 +613,18 @@ impl Connection {
     /// Will return `Err` if `table` not exists
     pub fn appender_to_db(&self, table: &str, schema: &str) -> Result<Appender<'_>> {
         self.db.borrow_mut().appender(self, None, schema, table)
+    }
+
+    /// Append directly to transaction-local storage without constructing an INSERT query.
+    ///
+    /// Input values, active columns, defaults and flush error handling have the same
+    /// semantics as [`Connection::appender_to_db`]. Constraints remain enforced.
+    /// Uses this connection's transaction; `flush` does not commit an explicit transaction.
+    /// Requires the bundled, version-matched C++ bridge. Always explicitly flush and
+    /// check its result: errors from Drop cannot be reported.
+    #[cfg(feature = "direct-appender")]
+    pub fn direct_appender_to_db(&self, table: &str, schema: &str) -> Result<Appender<'_>> {
+        self.db.borrow_mut().direct_appender(self, schema, table)
     }
 
     /// Create an Appender for fast import data with provided catalog, schema and table

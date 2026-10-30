@@ -77,6 +77,8 @@ pub enum LogicalTypeId {
     TimeTZ = DUCKDB_TYPE_DUCKDB_TYPE_TIME_TZ as RawLogicalTypeId,
     /// Timestamp TZ
     TimestampTZ = DUCKDB_TYPE_DUCKDB_TYPE_TIMESTAMP_TZ as RawLogicalTypeId,
+    /// Nanosecond timestamp with time zone.
+    TimestampTZNs = DUCKDB_TYPE_DUCKDB_TYPE_TIMESTAMP_TZ_NS as RawLogicalTypeId,
     /// Unsigned Hugeint
     UHugeint = DUCKDB_TYPE_DUCKDB_TYPE_UHUGEINT as RawLogicalTypeId,
     /// Array
@@ -141,6 +143,7 @@ impl From<u32> for LogicalTypeId {
             DUCKDB_TYPE_DUCKDB_TYPE_BIT => Self::Bit,
             DUCKDB_TYPE_DUCKDB_TYPE_TIME_TZ => Self::TimeTZ,
             DUCKDB_TYPE_DUCKDB_TYPE_TIMESTAMP_TZ => Self::TimestampTZ,
+            DUCKDB_TYPE_DUCKDB_TYPE_TIMESTAMP_TZ_NS => Self::TimestampTZNs,
             DUCKDB_TYPE_DUCKDB_TYPE_UHUGEINT => Self::UHugeint,
             DUCKDB_TYPE_DUCKDB_TYPE_ARRAY => Self::Array,
             DUCKDB_TYPE_DUCKDB_TYPE_ANY => Self::Any,
