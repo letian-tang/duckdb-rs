@@ -476,3 +476,6 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(feature = "native-frontend")]
+pub mod native_frontend;

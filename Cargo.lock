@@ -956,6 +956,7 @@ name = "duckdb-neo"
 version = "0.20000.2"
 dependencies = [
  "arrow-array",
+ "cc",
  "chrono",
  "divan",
  "duckdb-loadable-macros",
@@ -964,6 +965,7 @@ dependencies = [
  "paste",
  "r2d2",
  "rust_decimal",
+ "serde_json",
  "tempfile",
  "uuid",
 ]
