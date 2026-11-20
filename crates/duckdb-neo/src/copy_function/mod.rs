@@ -92,6 +92,8 @@ fn batch_to_callback<T: CopyToFunctionCallbacks>(
     let logical_types = bind_data.logical_types.clone();
 
     let collection = ColumnDataCollection {
+        owner: None,
+        retained_databases: Vec::new(),
         handle: check_api_call!(ffi::duckdb_v2_copy_to_batch_take_input, info, RET)?,
         logical_types,
         column_names: None,

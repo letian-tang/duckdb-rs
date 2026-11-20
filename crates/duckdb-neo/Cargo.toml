@@ -1,5 +1,6 @@
 [package]
 name = "duckdb-neo"
+links = "duckdb_neo_frontend"
 description = "Ergonomic wrapper for DuckDB's v2 C API (beta)"
 version = "0.20001.0"
 authors = { workspace = true }
@@ -19,7 +20,12 @@ name = "duckdb_neo"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
+[build-dependencies]
+cc = "1"
+
 [features]
+native-frontend = ["bundled-cmake"]
+direct-appender = ["native-frontend"]
 default = [
     "buildtime-download",
     "buildtime-pkg-config",
@@ -59,6 +65,7 @@ build-extension = ["libduckdb-sys/loadable-extension-v2"]
 build-extension-static = []
 
 [dependencies]
+serde_json = { workspace = true }
 chrono = { workspace = true, optional = true }
 duckdb-loadable-macros = { workspace = true, features = ["neo"] }
 jiff = { workspace = true, optional = true }

@@ -4,7 +4,11 @@
 //! appending state or borrowed for scanning. Appended chunks are copied into
 //! storage owned by the collection.
 
-use std::marker::PhantomData;
+use crate::{Factory, connection::Connection, instance::InstanceHandle};
+use std::{
+    marker::PhantomData,
+    sync::{Arc, Mutex},
+};
 
 use crate::column_data_collection::ColumnParameter::{Named, Positional};
 use crate::connection::HasFactory;
@@ -22,6 +26,12 @@ use crate::{
     logical_type::LogicalType,
     raw::RawExt,
 };
+
+#[derive(Debug)]
+pub(crate) struct CollectionOwner {
+    factory: Factory,
+    pub(crate) _database: Arc<Mutex<InstanceHandle>>,
+}
 
 /// The columns of a [`ColumnDataCollection`], with or without names.
 ///
@@ -183,6 +193,8 @@ pub struct ColumnDataCollection<'conn> {
     pub(crate) handle: ffi::duckdb_v2_column_data_collection_handle,
     pub(crate) logical_types: Vec<LogicalType>,
     pub(crate) column_names: Option<Vec<String>>,
+    pub(crate) owner: Option<Arc<CollectionOwner>>,
+    pub(crate) retained_databases: Vec<Arc<CollectionOwner>>,
     pub(crate) origin: Option<ffi::duckdb_v2_connection_handle>,
     pub(crate) _marker: PhantomData<&'conn ()>,
 }
@@ -219,6 +231,8 @@ impl<'conn> ColumnDataCollection<'conn> {
             handle,
             logical_types,
             column_names: names,
+            owner: None,
+            retained_databases: Vec::new(),
             origin: link.connection_origin(),
             _marker: PhantomData,
         })
@@ -274,6 +288,109 @@ impl<'conn> ColumnDataCollection<'conn> {
     /// ```
     pub fn to_scan<'scan, C: HasFactory>(&'scan self, link: &'scan C) -> Result<ColumnDataCollectionScan<'scan>> {
         ColumnDataCollectionScan::new(self, link)
+    }
+}
+
+impl ColumnDataCollection<'static> {
+    /// Create native collection storage that pins its database independently of a session.
+    pub fn new_owned(connection: &Connection, columns: impl Into<ColumnParameter>) -> Result<Self> {
+        let owner = Arc::clone(&connection.instance);
+        let factory = Factory::new(check_api_call!(
+            ffi::duckdb_v2_instance_get_factory,
+            owner.lock().unwrap().handle,
+            RET
+        )?);
+        let (logical_types, column_names) = match columns.into() {
+            Positional(types) => (types, None),
+            Named(columns) => {
+                let (types, names) = columns.into_iter().unzip();
+                (types, Some(names))
+            }
+        };
+        let types = logical_types.iter().map(|ty| ty.handle).collect::<Vec<_>>();
+        let handle = check_api_call!(
+            ffi::duckdb_v2_column_data_collection_create,
+            factory.raw(),
+            types.as_ptr(),
+            types.len() as u64,
+            RET
+        )?;
+        Ok(Self {
+            handle,
+            logical_types,
+            column_names,
+            origin: None,
+            owner: Some(Arc::new(CollectionOwner {
+                factory,
+                _database: owner,
+            })),
+            retained_databases: Vec::new(),
+            _marker: PhantomData,
+        })
+    }
+
+    /// Consume independently owned storage into a scan that can move between workers.
+    pub fn to_owned_scan(self) -> Result<OwnedColumnDataCollectionScan> {
+        let owner = self
+            .owner
+            .as_ref()
+            .ok_or_else(|| crate::Error::invalid_input("collection borrows a connection or context factory"))?;
+        let types = self.logical_types.iter().map(|ty| ty.handle).collect::<Vec<_>>();
+        let chunk = DataChunk::new(
+            check_api_call!(
+                ffi::duckdb_v2_data_chunk_create,
+                owner.factory.raw(),
+                types.as_ptr(),
+                types.len() as u64,
+                RET
+            )?,
+            false,
+        )?;
+        Ok(OwnedColumnDataCollectionScan {
+            worker_scan_state: self.create_worker_scan_state()?,
+            shared_scan_state: self.create_shared_scan_state()?,
+            chunk,
+            collection: self,
+        })
+    }
+}
+
+/// Owned native scan states and current chunk, retaining every backing database.
+#[derive(Debug)]
+pub struct OwnedColumnDataCollectionScan {
+    worker_scan_state: ColumnDataCollectionWorkerScanStateHandle,
+    shared_scan_state: ColumnDataCollectionSharedScanStateHandle,
+    chunk: DataChunk<'static>,
+    collection: ColumnDataCollection<'static>,
+}
+// SAFETY: construction requires independently owned storage; no session factory or
+// live query is retained. States, chunk and storage move together exclusively.
+unsafe impl Send for OwnedColumnDataCollectionScan {}
+impl OwnedColumnDataCollectionScan {
+    /// Advance the native scan, borrowing its output until the next advance.
+    pub fn next_chunk(&mut self) -> Result<Option<DataChunk<'_>>> {
+        loop {
+            self.chunk.evict_cached();
+            let produced: bool = check_api_call!(
+                ffi::duckdb_v2_column_data_collection_scan,
+                self.collection.handle,
+                self.shared_scan_state.raw(),
+                self.worker_scan_state.raw(),
+                self.chunk.handle,
+                RET
+            )?;
+            if !produced {
+                return Ok(None);
+            }
+            let chunk = DataChunk::borrowed(self.chunk.handle, false)?;
+            if chunk.row_count()? > 0 {
+                return Ok(Some(chunk));
+            }
+        }
+    }
+    /// Borrow the current output without copying it or advancing the scan.
+    pub fn current_chunk(&self) -> &DataChunk<'static> {
+        &self.chunk
     }
 }
 
@@ -448,6 +565,10 @@ impl<'conn> ColumnDataCollectionAppender<'conn> {
             self.collection.origin = None;
         }
 
+        if let Some(owner) = other.owner.take() {
+            self.collection.retained_databases.push(owner);
+        }
+        self.collection.retained_databases.append(&mut other.retained_databases);
         self.appender = self.collection.create_append_state()?;
 
         Ok(self)
@@ -745,6 +866,73 @@ mod test {
         }
         assert_eq!(rows, [42, 42]);
         Ok(())
+    }
+
+    #[test]
+    fn combined_owned_collections_keep_all_instances_alive() -> Result<()> {
+        use crate::DuckDBType;
+        fn collection(value: i64) -> Result<ColumnDataCollection<'static>> {
+            let conn = Environment::new()?.open(StorageLocation::InMemory)?.connect()?;
+            let ty = i64::logical_type(&conn)?;
+            let mut collection = ColumnDataCollection::new_owned(&conn, [ty])?.to_append()?;
+            let mut chunk = conn
+                .query("SELECT $1::BIGINT", Parameters::positional(&[&value]))?
+                .next_chunk()?
+                .unwrap();
+            collection.append(&mut chunk)?;
+            Ok(collection.to_normal())
+        }
+        let combined = collection(7)?.to_append()?;
+        let combined = combined.combine(collection(8)?)?;
+        let mut scan = combined.to_normal().to_owned_scan()?;
+        let mut values = Vec::new();
+        while let Some(chunk) = scan.next_chunk()? {
+            values.extend(
+                chunk
+                    .get_vector_at::<i64>(0)?
+                    .reader()?
+                    .iter()
+                    .map(|value| *value.unwrap()),
+            );
+        }
+        assert_eq!(values, [7, 8]);
+        Ok(())
+    }
+    #[test]
+    fn owned_scan_outlives_sessions_and_moves_between_workers() -> Result<()> {
+        let scan = {
+            let connection = Environment::new()?.open(StorageLocation::InMemory)?.connect()?;
+            let mut result = connection.query(
+                "SELECT i, 'a' || chr(0) || '中' FROM range(10000) t(i)",
+                Parameters::None,
+            )?;
+            let types = result
+                .schema()?
+                .get_all()?
+                .into_iter()
+                .map(|(_, ty)| ty)
+                .collect::<Vec<_>>();
+            let mut collection = ColumnDataCollection::new_owned(&connection, types)?.to_append()?;
+            while let Some(mut chunk) = result.next_chunk()? {
+                collection.append(&mut chunk)?;
+            }
+            collection.to_normal().to_owned_scan()?
+        };
+        std::thread::spawn(move || -> Result<()> {
+            let mut scan = scan;
+            let mut count = 0_i64;
+            while let Some(chunk) = scan.next_chunk()? {
+                for row in 0..chunk.row_count()? {
+                    assert_eq!(chunk.get_vector_at::<i64>(0)?.reader()?.get(row)?, Some(&count));
+                    assert_eq!(chunk.get_vector_at::<String>(1)?.reader()?.get(row)?, Some("a\0中"));
+                    count += 1;
+                }
+            }
+            assert_eq!(count, 10000);
+            Ok(())
+        })
+        .join()
+        .unwrap()
     }
 
     #[test]
